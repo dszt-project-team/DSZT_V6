@@ -1,0 +1,33 @@
+# 本机缓存、诊断记录与临时文件（仅不入库，不删除本地资料）
+/.em_skill.json
+/.mxproject
+/logs/
+/tmp/
+**/.vscode/
+*.uvguix.*
+*.log
+*.log.lock
+*.bak
+__pycache__/
+*.pyc
+
+# MDK 构建输出；保留工程、启动文件、RTE 与共享调试配置
+/MDK-ARM/DSZT_V6/
+*.lst
+*.map
+*.axf
+*.hex
+*.o
+*.d
+*.crf
+*.lnp
+*.dep
+
+# 主机测试产物与旧验证记录
+/tests/*.exe
+/tests/validation_*.md
+
+# 非当前软件交付物
+/Doc/车体模型文件/
+/Doc/OID-RS485-500W Modbus RTU_单驱_电调/RS485_Modbus_demo/
+/Doc/OID-RS485-500W Modbus RTU_单驱_电调/OID_RS485_Modbus_demo.zip

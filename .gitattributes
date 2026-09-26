@@ -1,0 +1,14 @@
+# 源文件采用统一仓库文本格式；工具与硬件资料按原始二进制保留。
+* text=auto
+*.c text
+*.h text
+*.s text
+*.md text
+*.ioc text
+*.uvprojx text
+*.uvoptx text
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.zip binary
