@@ -25,6 +25,7 @@ __pycache__/
 
 # 主机测试产物与旧验证记录
 /tests/*.exe
+/tests/.build/
 /tests/validation_*.md
 
 # 非当前软件交付物

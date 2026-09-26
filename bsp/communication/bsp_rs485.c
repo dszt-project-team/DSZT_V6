@@ -152,6 +152,10 @@ void BSP_RS485_PollFrameTimeout(BSP_RS485_Bus_t *bus, uint32_t now_ms, uint32_t 
 
   primask = __get_PRIMASK();
   __disable_irq();
+  /* 调用者的 now_ms 可能早于刚发生的接收中断；在同一临界区重取当前
+   * tick 和接收快照，避免无符号时间差下溢把尚未收完的半帧提前截断。
+   * 保留下方二次快照复核，防止重新开中断后到达的新字节被归入旧帧。 */
+  now_ms = HAL_GetTick();
   len_snapshot = bus->rx_len;
   last_tick_snapshot = bus->last_rx_tick;
   if (primask == 0U)
