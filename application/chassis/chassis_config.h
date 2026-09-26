@@ -17,7 +17,7 @@
 
 /* 快速换向反馈等待：当前0关闭，目标直接交给OID内部斜坡；1先提交双零速并等待新鲜低速反馈再放行。 */
 #define CHASSIS_OID_REVERSE_GUARD_ENABLE     0U
-/* 低速判定窗口，单位ERPM，当前±50；用于可选换向等待，也用于锁车额外回读许可。不是下方停车锁存的独立±50阈值。 */
+/* 低速判定窗口，单位ERPM，当前±50；用于可选换向等待和锁车额外回读许可，不产生永久停车锁存。 */
 #define CHASSIS_OID_REVERSE_ZERO_ERPM       50L
 /* 可选换向等待所需连续双侧新样本组数，当前2组；加大更保守但延迟增加，当前等待开关为0时不参与换向。 */
 #define CHASSIS_OID_REVERSE_ZERO_PAIRS       2U
@@ -45,10 +45,10 @@
 /* 固定后轮距，单位m，当前0.500；仅记录结构尺寸，当前前轴阿克曼算法不读取此值。 */
 #define CHASSIS_REAR_TRACK_M               0.500f
 
-/* 零油门满舵的内轮目标角，当前18°，不是电机输出轴角；加大转弯更急，须联查连杆映射及53°/55°轴角保护。 */
-#define CHASSIS_MAX_INNER_WHEEL_DEG       18.000f
+/* 零油门满舵内轮目标28°，模型外轮20.320382°、轴角76.125212°/66.915019°；沿用连杆比例，须实测新结构并联查80°/82°保护。 */
+#define CHASSIS_MAX_INNER_WHEEL_DEG       28.000f
 
-/* 转向模式：当前0正常双闭环，1仅左开环，2仅右开环；开环仅手动可用，另一轮刹停且禁止OID行走，无闭环角度保护。 */
+/* 转向模式：当前0正常双闭环；1仅左开环，2仅右开环。开环仅手动可用，另一轮刹停且禁止OID行走，无闭环角度保护。 */
 #define CHASSIS_STEER_CALIBRATION_SIDE       0U
 
 /* 单轮开环编码器健康门：当前0旁路，1要求选中侧健康；不影响正常双闭环强制检查双侧编码器。 */
@@ -67,10 +67,10 @@
 /* 连杆角度模型确认：当前1允许转向就绪后申请行走；0阻止行走，但不单独关闭转向位置环。 */
 #define CHASSIS_STEER_LINKAGE_CONFIRMED      1U
 
-/* 左编码器直行软件零点，当前3148，12位范围0～4095；改值会改变物理回正位置，不写编码器NVM。 */
-#define CHASSIS_STEER_LEFT_ZERO_RAW       3148U
-/* 右编码器直行软件零点，当前3006，12位范围0～4095；左右独立标定，不互换，不自动按上电位置取零。 */
-#define CHASSIS_STEER_RIGHT_ZERO_RAW      3006U
+/* 左编码器直行软件零点，当前3189，12位范围0～4095；改值会改变物理回正位置，不写编码器NVM。 */
+#define CHASSIS_STEER_LEFT_ZERO_RAW       3189U
+/* 右编码器直行软件零点，当前3073，12位范围0～4095；左右独立标定，不互换，不自动按上电位置取零。 */
+#define CHASSIS_STEER_RIGHT_ZERO_RAW      3073U
 
 /* 左编码器相对角极性：当前1取反，0不反；须与电机方向一起确保负反馈，改错可能持续向限位运动。 */
 #define CHASSIS_STEER_LEFT_SENSOR_INVERT     1U
@@ -94,13 +94,13 @@
 
 /* 内轮连杆映射的参考轮角，当前33°；与89.719°配套，须>0，不能随MAX_INNER_WHEEL_DEG一起缩放。 */
 #define CHASSIS_STEER_INNER_REFERENCE_DEG   33.0f
-/* 外轮连杆映射的参考轮角，当前25°；与82.325°配套，须>0，不是当前18°内轮所对应的外轮角。 */
+/* 外轮连杆映射的参考轮角，当前25°；与82.325°配套，须>0，不是当前28°内轮所对应的外轮角。 */
 #define CHASSIS_STEER_OUTER_REFERENCE_DEG   25.0f
 /* 外轮参考轮角25°对应的输出轴角，当前82.325°；修改会改变外轮轴角目标，应按连杆实测标定。 */
 #define CHASSIS_STEER_OUTER_OUTPUT_DEG      82.325f
 
-/* 上层输出轴目标保护，当前53°；目标绝对值大于此值即故障，不是夹紧到53°，也不是轮胎角/机械止挡。 */
-#define CHASSIS_STEER_TARGET_MAX_DEG        53.0f
+/* 上层输出轴目标保护80°；大于即故障而非钳位。高于最大模型轴角76.125212°约3.87°，不代表机械行程已验证。 */
+#define CHASSIS_STEER_TARGET_MAX_DEG        80.0f
 /* 输出轴目标最大变化率，当前300°/s，须>0；增大更跟手但更急，独立于OID差速斜坡和位置环PWM变化率。 */
 #define CHASSIS_STEER_TARGET_SLEW_DEG_PER_S 300.0f
 /* OID差速用归一化转向指令变化率，当前1.6/s，须>0；10 ms最多变化16‰，增大差速跟随更快，不限制公共油门。 */
@@ -110,8 +110,8 @@
 #define CHASSIS_STEER_POSITION_TOLERANCE_DEG         3.0f
 /* 已进入误差带后重新起转的轴角误差阈值，当前5°；大于此值才重启，须>停止误差且<反馈保护，形成防抖迟滞。 */
 #define CHASSIS_STEER_POSITION_RESTART_DEG           5.0f
-/* 位置环输出轴反馈保护，当前55°，反馈绝对值大于此值故障；同时是内环目标合法性上限，须配合上层53°保护与机械行程。 */
-#define CHASSIS_STEER_POSITION_MAX_ABS_DEG          55.0f
+/* 输出轴反馈保护82°，反馈绝对值大于即故障；也是内环目标合法性上限，配合上层80°保护，不能替代机械止挡。 */
+#define CHASSIS_STEER_POSITION_MAX_ABS_DEG          82.0f
 /* 位置比例增益，单位‰/°，当前22；PWM目标由绝对角误差乘此值再限幅，增大更强但可能过冲，不是PID的积分/微分项。 */
 #define CHASSIS_STEER_POSITION_KP_PER_DEG           22.0f
 /* 启用专用回中误差带的目标轴角范围，当前±1°；设0禁用专用回中分支，改大将更多近零目标纳入回中策略。 */
@@ -165,17 +165,19 @@
 #error "Invalid steering or speed scheduling parameters"
 #endif
 
-/* 飞控输入捕获有效脉宽下限，当前1 μs；低于此值判范围异常，与上限共同定义采集合法窗口，不是油门端点。 */
-#define CHASSIS_FC_PWM_MIN_VALID_US          1U
-/* 飞控有效脉宽上限，当前65535 μs；当前窗口很宽，端点外由映射钳位，并不严格过滤常见航模范围之外的脉冲。 */
-#define CHASSIS_FC_PWM_MAX_VALID_US      65535U
+/* 飞控有效脉宽下限，当前800 μs；低于此值判范围异常并撤销自动释放，不映射成满幅目标。 */
+#define CHASSIS_FC_PWM_MIN_VALID_US        800U
+/* 飞控有效脉宽上限，当前2200 μs；高于此值判范围异常。覆盖现MAIN1/2标定端点，修改须匹配真实PWM。 */
+#define CHASSIS_FC_PWM_MAX_VALID_US       2200U
 /* 飞控有效脉冲超时，当前30 ms；超时撤销自动释放并重置滤波预热，改大增加容忍也延迟掉线停车。 */
 #define CHASSIS_FC_PWM_TIMEOUT_MS            30U
 /* 飞控非法脉冲范围故障保留时间，当前5 ms；须>0且<输入超时，避免短暂坏脉冲被立即掩盖。 */
 #define CHASSIS_FC_PWM_TRANSIENT_HOLD_MS      5U
-/* 每路飞控脉宽滑动均值窗口，当前8个样本，范围1～8；增大更平滑也增加输入跟随延迟。 */
-#define CHASSIS_FC_PWM_AVERAGE_WINDOW         8U
-/* 飞控在线预热所需连续有效样本，当前4帧；范围1～均值窗口，增大恢复更稳但更慢。 */
+/* MAIN1行走均值窗口，当前1等于最新有效脉宽直通，范围1～8；设大于1会重新引入油门延迟。 */
+#define CHASSIS_FC_DRIVE_AVERAGE_WINDOW       1U
+/* MAIN2转向均值窗口，当前8个样本，范围1～8；独立于MAIN1，增大更平滑也增加转向输入延迟。 */
+#define CHASSIS_FC_STEER_AVERAGE_WINDOW       8U
+/* 飞控上电/异常恢复在线预热，当前4个连续有效样本，范围1～255，独立于均值窗口；正常在线后不额外延迟每次输入。 */
 #define CHASSIS_FC_PWM_VALID_TO_ONLINE        4U
 
 /* MAIN1反向满幅端点，当前1260 μs；低于等于此值钳位−1000‰，须低于中位减死区。 */
@@ -201,5 +203,18 @@
 
 /* 底盘目标、位置环及上层安全控制更新间隔，当前10 ms；OID收发每轮独立服务。改动需联查PWM斜坡、滤波和任务负载。 */
 #define CHASSIS_CONTROL_PERIOD_MS           10U
+
+#if CHASSIS_FC_DRIVE_AVERAGE_WINDOW < 1U || CHASSIS_FC_DRIVE_AVERAGE_WINDOW > 8U || CHASSIS_FC_STEER_AVERAGE_WINDOW < 1U || CHASSIS_FC_STEER_AVERAGE_WINDOW > 8U || CHASSIS_FC_PWM_VALID_TO_ONLINE < 1U || CHASSIS_FC_PWM_VALID_TO_ONLINE > 255U
+#error "Invalid independent FC averaging or warmup configuration"
+#endif
+#if CHASSIS_FC_PWM_MIN_VALID_US >= CHASSIS_FC_PWM_MAX_VALID_US || CHASSIS_FC_PWM_MAX_VALID_US > 65535U || CHASSIS_FC_PWM_TRANSIENT_HOLD_MS < 1U || CHASSIS_FC_PWM_TRANSIENT_HOLD_MS >= CHASSIS_FC_PWM_TIMEOUT_MS
+#error "Invalid FC pulse validity or timeout configuration"
+#endif
+#if CHASSIS_FC_DRIVE_REVERSE_FULL_US < CHASSIS_FC_PWM_MIN_VALID_US || CHASSIS_FC_DRIVE_FORWARD_FULL_US > CHASSIS_FC_PWM_MAX_VALID_US || CHASSIS_FC_DRIVE_REVERSE_FULL_US + CHASSIS_FC_DRIVE_DEADBAND_US >= CHASSIS_FC_DRIVE_NEUTRAL_US || CHASSIS_FC_DRIVE_NEUTRAL_US + CHASSIS_FC_DRIVE_DEADBAND_US >= CHASSIS_FC_DRIVE_FORWARD_FULL_US
+#error "Invalid MAIN1 endpoints or deadband"
+#endif
+#if CHASSIS_FC_STEER_LEFT_FULL_US < CHASSIS_FC_PWM_MIN_VALID_US || CHASSIS_FC_STEER_RIGHT_FULL_US > CHASSIS_FC_PWM_MAX_VALID_US || CHASSIS_FC_STEER_LEFT_FULL_US + CHASSIS_FC_STEER_DEADBAND_US >= CHASSIS_FC_STEER_NEUTRAL_US || CHASSIS_FC_STEER_NEUTRAL_US + CHASSIS_FC_STEER_DEADBAND_US >= CHASSIS_FC_STEER_RIGHT_FULL_US
+#error "Invalid MAIN2 endpoints or deadband"
+#endif
 
 #endif

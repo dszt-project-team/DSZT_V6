@@ -593,6 +593,30 @@ static void FrontDrive_HandleEncoderZFault(FrontDrive_Handle_t *drive,
   FrontDrive_RequestSafetyClear(drive, clear_left, clear_right);
 }
 
+/** 仅在锁车低速的合法新回读确认模式异常时，进入既有清零重臂。 */
+static void FrontDrive_CheckControlModeReadback(FrontDrive_Handle_t *drive,
+                                               const OID_ESC_Handle_t *esc,
+                                               uint32_t previous_reads)
+{
+  /* 只使用本次合法且未超时的请求回包；旧诊断快照不能触发恢复。
+   * 应用仅在锁车、双侧反馈新鲜且低速时授予 control_read_allowed。
+   * 若等待回包期间已经解锁，则不在线改写模式，留到下次安全回读处理。 */
+  if ((esc->diagnostic.control_reads == previous_reads) ||
+      (drive->control_read_allowed == 0U) ||
+      (drive->safety_state != (uint8_t)FRONT_DRIVE_SAFETY_IDLE) ||
+      (esc->diagnostic.control_mode == (uint16_t)OID_ESC_MODE_SPEED))
+  {
+    return;
+  }
+
+  /* UART 发出模式帧不等于驱动器已保持该模式。新回读与预期速度模式
+   * 不符时，先废弃缓存及挂起目标，再走已有双侧清零/心跳/回中重臂，
+   * 不直接恢复原非零速度，也不增加运动期间的诊断轮询。 */
+  drive->left_control_mode_cache = (uint16_t)OID_ESC_MODE_IDLE;
+  drive->right_control_mode_cache = (uint16_t)OID_ESC_MODE_IDLE;
+  FrontDrive_RequestSafetyClear(drive, 1U, 1U);
+}
+
 /**
   * @brief 解析 RS485 总线上收到的一帧，并清除对应电调的状态等待标志。
   * @param drive  前轮驱动对象。
@@ -603,6 +627,7 @@ static void FrontDrive_HandleEncoderZFault(FrontDrive_Handle_t *drive,
 static void FrontDrive_HandleRxFrame(FrontDrive_Handle_t *drive, const uint8_t *frame, uint16_t len, uint32_t now_ms)
 {
   uint32_t before_update;
+  uint32_t before_control_reads;
 
   if ((drive == 0) || (frame == 0))
   {
@@ -615,8 +640,10 @@ static void FrontDrive_HandleRxFrame(FrontDrive_Handle_t *drive, const uint8_t *
        (frame[0] == drive->right.id && drive->right_wait_status == 0U))) return;
 
   before_update = drive->left.status.last_update_ms;
+  before_control_reads = drive->left.diagnostic.control_reads;
   if (OID_ESC_HandleFrame(&drive->left, frame, len, now_ms) != 0U)
   {
+    FrontDrive_CheckControlModeReadback(drive, &drive->left, before_control_reads);
     if (drive->left.status.last_update_ms != before_update)
     {
       drive->left_wait_status = 0U;
@@ -629,8 +656,10 @@ static void FrontDrive_HandleRxFrame(FrontDrive_Handle_t *drive, const uint8_t *
   }
 
   before_update = drive->right.status.last_update_ms;
+  before_control_reads = drive->right.diagnostic.control_reads;
   if (OID_ESC_HandleFrame(&drive->right, frame, len, now_ms) != 0U)
   {
+    FrontDrive_CheckControlModeReadback(drive, &drive->right, before_control_reads);
     if (drive->right.status.last_update_ms != before_update)
     {
       drive->right_wait_status = 0U;

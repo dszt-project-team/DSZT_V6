@@ -22,8 +22,13 @@ try {
         @{ Name='test_oid_reverse_guard'; Includes=$common },
         @{ Name='test_oid_stop_guard_field_cases'; Includes=$common },
         @{ Name='test_oid_diagnostics'; Includes=@('-Itests/oid_stubs', '-Ibsp/communication', '-Imodules/drive', '-Imodules/protocol') },
+        @{ Name='test_oid_mode_recovery'; Includes=@('-Itests/oid_stubs', '-Ibsp/communication', '-Imodules/drive', '-Imodules/protocol') },
         @{ Name='test_uart_idle_irq'; Includes=@('-Itests/irq_stubs', '-ICore/Inc') },
-        @{ Name='test_rs485_frame_timeout'; Includes=@('-Itests/rs485_stubs', '-Ibsp/communication', '-Ibsp/dispatch') }
+        @{ Name='test_rs485_frame_timeout'; Includes=@('-Itests/rs485_stubs', '-Ibsp/communication', '-Ibsp/dispatch') },
+        @{ Name='test_chassis_control'; Includes=@('-Itests/chassis_stubs', '-Iapplication', '-Iapplication/chassis', '-Ibsp/communication', '-Imodules/drive', '-Imodules/input') },
+        @{ Name='test_pwm_input'; Includes=@('-Itests/pwm_stubs', '-Ibsp/dispatch') },
+        @{ Name='test_sbus_timestamp'; Includes=@('-Itests/input_time_stubs', '-Ibsp/dispatch') },
+        @{ Name='test_encoder_timestamp'; Includes=@('-Itests/input_time_stubs', '-Ibsp/dispatch') }
     )
     foreach ($case in $cases) {
         $executable = Join-Path $testOutput ($case.Name + '.exe')

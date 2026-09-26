@@ -134,8 +134,7 @@ static uint8_t Mt6826sPwm_IsCandidateContinuous(const Mt6826sPwm_Handle_t *senso
   uint32_t allowed_count;
 
   if ((sensor == 0) ||
-      (sensor->sample_count == 0U) ||
-      (sensor->last_update_ms == 0U))
+      (sensor->sample_count == 0U))
   {
     return 1U;
   }
@@ -161,21 +160,10 @@ static uint8_t Mt6826sPwm_IsTimestampFresh(uint32_t now_ms,
                                            uint32_t timestamp_ms,
                                            uint32_t timeout_ms)
 {
-  if (timestamp_ms == 0U)
-  {
-    return 0U;
-  }
-
-  /*
-   * 输入捕获中断可能刚写入 HAL_GetTick()+1，而应用任务传入的是本轮调度开始时的 now_ms。
-   * 这种 1ms 级“未来时间戳”视为刚更新，避免 unsigned 相减误判超时。
-   */
-  if (now_ms < timestamp_ms)
-  {
-    return 1U;
-  }
-
-  return ((now_ms - timestamp_ms) <= timeout_ms) ? 1U : 0U;
+  /* 调用方在临界区内同步采样当前 tick 与反馈；无符号差正确跨越 tick
+   * 回绕，不把回绕前的旧数据误认为“未来新数据”。online 判断是否收到过帧，
+   * 因此时间戳 0 仍是有效时刻，不作为无数据标志。 */
+  return ((uint32_t)(now_ms - timestamp_ms) <= timeout_ms) ? 1U : 0U;
 }
 
 static void Mt6826sPwm_ProcessFrame(Mt6826sPwm_Handle_t *sensor,
@@ -306,21 +294,27 @@ HAL_StatusTypeDef Mt6826sPwm_Init(Mt6826sPwm_Handle_t *sensor,
 
 void Mt6826sPwm_Task(Mt6826sPwm_Handle_t *sensor, uint32_t now_ms)
 {
-  uint32_t last_update_ms;
+  uint32_t primask;
 
   if (sensor == 0)
   {
     return;
   }
 
-  last_update_ms = sensor->last_update_ms;
+  primask = __get_PRIMASK();
+  __disable_irq();
+  now_ms = HAL_GetTick();
   if ((sensor->online != 0U) &&
       (Mt6826sPwm_IsTimestampFresh(now_ms,
-                                   last_update_ms,
+                                   sensor->last_update_ms,
                                    MT6826S_PWM_HEALTH_TIMEOUT_MS) == 0U))
   {
     sensor->online = 0U;
     sensor->timeout_count++;
+  }
+  if (primask == 0U)
+  {
+    __enable_irq();
   }
 }
 
@@ -368,18 +362,25 @@ void Mt6826sPwm_IcCaptureCallback(Mt6826sPwm_Handle_t *sensor,
 uint8_t Mt6826sPwm_IsHealthy(const Mt6826sPwm_Handle_t *sensor,
                              uint32_t now_ms)
 {
-  uint32_t last_update_ms;
+  uint32_t primask;
+  uint8_t healthy;
 
-  if ((sensor == 0) ||
-      (sensor->online == 0U))
+  if (sensor == 0)
   {
     return 0U;
   }
 
-  last_update_ms = sensor->last_update_ms;
-  return Mt6826sPwm_IsTimestampFresh(now_ms,
-                                     last_update_ms,
-                                     MT6826S_PWM_HEALTH_TIMEOUT_MS);
+  primask = __get_PRIMASK();
+  __disable_irq();
+  now_ms = HAL_GetTick();
+  healthy = (uint8_t)((sensor->online != 0U) &&
+      (Mt6826sPwm_IsTimestampFresh(now_ms, sensor->last_update_ms,
+                                  MT6826S_PWM_HEALTH_TIMEOUT_MS) != 0U));
+  if (primask == 0U)
+  {
+    __enable_irq();
+  }
+  return healthy;
 }
 
 void Mt6826sPwm_SetDirectionInverted(Mt6826sPwm_Handle_t *sensor,
@@ -483,6 +484,7 @@ void Mt6826sPwm_GetSnapshot(const Mt6826sPwm_Handle_t *sensor,
 
   primask = __get_PRIMASK();
   __disable_irq();
+  now_ms = HAL_GetTick();
   snapshot->online = sensor->online;
   snapshot->raw_angle = sensor->raw_angle;
   snapshot->zero_valid = sensor->zero_valid;

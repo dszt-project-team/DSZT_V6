@@ -85,7 +85,11 @@ HAL_StatusTypeDef BSP_RS485_Send(BSP_RS485_Bus_t *b, const uint8_t *p, uint16_t 
     assert(p[1]==0x04 && reg==0x1388 && p[5]==9);
     status_count[side]++;
     if(drop_status) return HAL_OK;
-    reply[2]=18; put32(reply+5,target[side]); len=crc(reply,21);
+    /* A target register can be nonzero while the controller is not in speed
+       mode. Model actual speed separately for the cache-mismatch probe. */
+    reply[2]=18;
+    put32(reply+5,mode[side]==OID_ESC_MODE_SPEED ? target[side] : 0);
+    len=crc(reply,21);
   }
   if(response_delay && (p[1]==0x03 || p[1]==0x04))
   {
@@ -263,11 +267,11 @@ int main(void)
     {
       if(tick==200) drop_write_id=0;
       FrontDrive_Task(&d,tick);
-      OidStopGuard_Update(&guard,1,1,target[0],target[1],tick);
+      OidStopGuard_Update(&guard,1);
       if(OidStopGuard_RequestDue(&guard,tick) && FrontDrive_StopUrgent(&d)==HAL_OK)
         OidStopGuard_MarkRequest(&guard,tick);
     }
-    assert(target[0]==0 && target[1]==0 && !guard.fault);
+    assert(target[0]==0 && target[1]==0);
     assert(d.left.diagnostic.zero_writes>=3 && d.right.diagnostic.zero_writes>=3);
   }
   puts("PASS: OID frames, zero retry, latest coherent pair, active readback gate, reversal prerequisites, delayed replies, status loss, heartbeat in WAIT_REARM/VERIFY and busy traffic");

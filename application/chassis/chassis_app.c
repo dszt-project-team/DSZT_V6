@@ -158,10 +158,11 @@ void ChassisApp_Init(void)
   pwm_config.maximum_valid_us = CHASSIS_FC_PWM_MAX_VALID_US;
   pwm_config.timeout_ms = CHASSIS_FC_PWM_TIMEOUT_MS;
   pwm_config.transient_fault_hold_ms = CHASSIS_FC_PWM_TRANSIENT_HOLD_MS;
-  pwm_config.average_window = CHASSIS_FC_PWM_AVERAGE_WINDOW;
+  pwm_config.average_window = CHASSIS_FC_DRIVE_AVERAGE_WINDOW;
   pwm_config.valid_samples_to_online = CHASSIS_FC_PWM_VALID_TO_ONLINE;
   pwm_config.channel = TIM_CHANNEL_3;
   s_fc_drive_input = PwmInput_Register(&pwm_config);
+  pwm_config.average_window = CHASSIS_FC_STEER_AVERAGE_WINDOW;
   pwm_config.channel = TIM_CHANNEL_4;
   s_fc_steer_input = PwmInput_Register(&pwm_config);
   memset(&s_fc_drive, 0, sizeof(s_fc_drive));
@@ -330,7 +331,6 @@ void ChassisApp_Task(uint32_t now_ms)
 
   permit_motion = (uint8_t)((CHASSIS_PARAMETERS_CONFIRMED != 0U) &&
                             (CHASSIS_OID_OUTPUT_ENABLE != 0U) &&
-                            (s_stop_guard.fault == 0U) &&
                             (source_ready != 0U) &&
                             (DualSteer_MotionReady() != 0U) &&
                             (FrontDrive_IsMotionReady(&s_front_drive, now_ms) != 0U));
@@ -364,15 +364,7 @@ void ChassisApp_Task(uint32_t now_ms)
   g_robot_chassis.oid_reverse_zero_pairs = s_reverse_guard.zero_pairs;
 
   OidStopGuard_Update(&s_stop_guard,
-      (uint8_t)(left_target == 0 && right_target == 0),
-      (uint8_t)(g_robot_chassis.left_online != 0U && g_robot_chassis.right_online != 0U &&
-                left_status->fault == 0U && right_status->fault == 0U),
-      left_status->speed_erpm, right_status->speed_erpm, now_ms);
-  if (s_stop_guard.fault != 0U)
-  {
-    left_target = right_target = 0;
-    permit_motion = 0U;
-  }
+      (uint8_t)(left_target == 0 && right_target == 0));
   if (OidStopGuard_RequestDue(&s_stop_guard, now_ms) != 0U)
   {
     if (FrontDrive_StopUrgent(&s_front_drive) == HAL_OK)
@@ -383,7 +375,7 @@ void ChassisApp_Task(uint32_t now_ms)
     (void)FrontDrive_SetTargetErpm(&s_front_drive, left_target, right_target);
   }
 
-  g_robot_chassis.oid_stop_fault = s_stop_guard.fault;
+  g_robot_chassis.oid_stop_fault = 0U; /* UART7兼容字段：停车永久锁存已移除。 */
   g_robot_chassis.left_target_erpm = left_target;
   g_robot_chassis.right_target_erpm = right_target;
   g_robot_chassis.motion_enabled = permit_motion;

@@ -2,36 +2,27 @@
 #define OID_STOP_GUARD_H
 #include <stdint.h>
 
-/* Not a mechanical brake. Keep transmitting zeros if a stop fault is latched.
- * Clearing the latch requires an MCU restart after physical inspection. */
+/* 仅维护停车零速重发，不按反馈速度锁存行走故障。
+ * 行走许可仍由遥控、转向和OID健康/安全恢复状态决定；不等于机械制动。 */
 typedef struct
 {
-  uint32_t begin_ms;
   uint32_t request_ms;
   uint8_t active;
   uint8_t requested;
-  uint8_t fault;
 } OidStopGuard;
 
-static void OidStopGuard_Update(OidStopGuard *g, uint8_t stopping,
-    uint8_t feedback_healthy, int32_t left, int32_t right, uint32_t now)
+static void OidStopGuard_Update(OidStopGuard *g, uint8_t stopping)
 {
-  if (stopping == 0U && g->fault == 0U)
+  if (stopping == 0U)
   {
     g->active = g->requested = 0U;
     return;
   }
   if (g->active == 0U)
   {
-    g->begin_ms = now;
     g->active = 1U;
     g->requested = 0U;
   }
-  /* At most 4900 ERPM / 4900 ERPM/s = 1 s nominal deceleration;
-     allow another 500 ms, then require fresh low-speed feedback. */
-  if ((now - g->begin_ms) >= 1500U && feedback_healthy != 0U &&
-      (left < -50 || left > 50 || right < -50 || right > 50))
-    g->fault = 1U;
 }
 
 static uint8_t OidStopGuard_RequestDue(const OidStopGuard *g, uint32_t now)
