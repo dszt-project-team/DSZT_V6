@@ -31,8 +31,8 @@ typedef struct
   uint16_t maximum_valid_us;
   uint32_t timeout_ms;
   uint32_t transient_fault_hold_ms;
-  uint8_t average_window;
-  uint8_t valid_samples_to_online;
+  uint8_t average_window;          /* 均值窗 1..8；1 表示直接使用最新有效脉宽。 */
+  uint8_t valid_samples_to_online; /* 连续有效帧预热 1..255，与均值窗独立。 */
 } PwmInput_Config_t;
 
 typedef struct
@@ -51,6 +51,7 @@ typedef struct
 typedef struct PwmInput_Handle PwmInput_Handle_t;
 
 PwmInput_Handle_t *PwmInput_Register(const PwmInput_Config_t *config);
+/* now_ms 保留兼容调用接口；实际健康判定在原子快照内重新读取 HAL 时基。 */
 uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
                              PwmInput_Snapshot_t *snapshot,
                              uint32_t now_ms);

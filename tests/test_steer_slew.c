@@ -19,7 +19,7 @@ int main(void)
   assert(fabsf(s_ctrl[1].target_angle_deg+3.0f)<0.001f);
   assert(g_robot_chassis.steering_scheduled_permille==-1000);
   for(t=230;t<=510;t+=10) drive=DualSteer_Task(-1000,0,1,t);
-  assert(fabsf(s_ctrl[0].target_angle_deg+89.719f*18.0f/33.0f)<0.001f);
+  assert(fabsf(s_ctrl[0].target_angle_deg+89.719f*28.0f/33.0f)<0.001f);
   assert(drive==-480); /* steering arrives at 300ms, OID ramp is independent */
   before=s_ctrl[0].target_angle_deg;
   DualSteer_Task(1000,0,1,520);

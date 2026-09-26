@@ -249,15 +249,26 @@ void SBusRc_StartReceive(SBusRc_Handle_t *rc)
   */
 void SBusRc_Task(SBusRc_Handle_t *rc, uint32_t now_ms)
 {
+  uint32_t primask;
+
   if (rc == 0)
   {
     return;
   }
 
-  if ((rc->data.last_update_ms == 0U) ||
-      ((now_ms - rc->data.last_update_ms) > SBUS_RC_TIMEOUT_MS))
+  /* 同一临界区采样当前 tick、检查最后一帧并更新 online，防止新 ISR 帧
+   * 比任务传入的 now_ms 更晚而造成无符号下溢，也防止超时判断覆盖新帧。
+   * 初始 online 已为 0；合法帧可以恰好在 tick 回绕为 0 时到达。 */
+  primask = __get_PRIMASK();
+  __disable_irq();
+  now_ms = HAL_GetTick();
+  if ((uint32_t)(now_ms - rc->data.last_update_ms) > SBUS_RC_TIMEOUT_MS)
   {
     rc->data.online = 0U;
+  }
+  if (primask == 0U)
+  {
+    __enable_irq();
   }
 }
 

@@ -89,7 +89,7 @@ typedef struct
   uint8_t oid_command_pending;
   uint8_t oid_command_step;
   uint8_t oid_command_urgent;
-  uint8_t oid_stop_fault;
+  uint8_t oid_stop_fault; /* 旧诊断字段保留为0，不再参与行走许可。 */
   uint8_t oid_reverse_wait;
   uint8_t oid_reverse_zero_pairs;
   uint8_t oid_read_active;

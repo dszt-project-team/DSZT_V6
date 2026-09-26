@@ -24,6 +24,7 @@ struct PwmInput_Handle
   volatile uint16_t last_invalid_us;
   volatile uint16_t samples[PWM_INPUT_MAX_AVERAGE_WINDOW];
   volatile uint32_t sample_sum;
+  volatile uint32_t rising_edge_ms;
   volatile uint32_t last_valid_ms;
   volatile uint32_t last_invalid_ms;
   volatile uint32_t valid_pulse_count;
@@ -38,10 +39,12 @@ struct PwmInput_Handle
 
 static PwmInput_Handle_t s_inputs[PWM_INPUT_MAX_INSTANCES];
 
-static uint32_t PwmInput_AgeMs(uint32_t now_ms, uint32_t event_ms)
+static void PwmInput_ResetFilter(PwmInput_Handle_t *handle)
 {
-  int32_t age_ms = (int32_t)(now_ms - event_ms);
-  return (age_ms >= 0) ? (uint32_t)age_ms : 0U;
+  handle->sample_sum = 0U;
+  handle->sample_index = 0U;
+  handle->sample_count = 0U;
+  handle->valid_streak = 0U;
 }
 
 static HAL_TIM_ActiveChannel PwmInput_GetActiveChannel(uint32_t channel)
@@ -66,8 +69,7 @@ static uint8_t PwmInput_ConfigIsValid(const PwmInput_Config_t *config)
       (config->transient_fault_hold_ms >= config->timeout_ms) ||
       (config->average_window == 0U) ||
       (config->average_window > PWM_INPUT_MAX_AVERAGE_WINDOW) ||
-      (config->valid_samples_to_online == 0U) ||
-      (config->valid_samples_to_online > config->average_window))
+      (config->valid_samples_to_online == 0U))
   {
     return 0U;
   }
@@ -79,6 +81,13 @@ static void PwmInput_PublishValidPulse(PwmInput_Handle_t *handle,
                                        uint32_t now_ms)
 {
   uint8_t window = handle->config.average_window;
+
+  /* 断流后首帧可能先于任务侧超时检查到达，不能沿用断流前的均值与预热。 */
+  if ((handle->valid_pulse_count != 0U) &&
+      ((uint32_t)(now_ms - handle->last_valid_ms) > handle->config.timeout_ms))
+  {
+    PwmInput_ResetFilter(handle);
+  }
 
   if (handle->sample_count < window)
   {
@@ -103,7 +112,8 @@ static void PwmInput_PublishValidPulse(PwmInput_Handle_t *handle,
                (uint32_t)handle->sample_count);
   handle->last_valid_ms = now_ms;
   handle->valid_pulse_count++;
-  if (handle->valid_streak < handle->config.average_window)
+  /* 在线预热与均值窗独立：MAIN1 可取最新值，但仍须连续有效帧确认。 */
+  if (handle->valid_streak < handle->config.valid_samples_to_online)
   {
     handle->valid_streak++;
   }
@@ -118,10 +128,7 @@ static void PwmInput_PublishInvalidPulse(PwmInput_Handle_t *handle,
   handle->last_invalid_us = pulse_us;
   handle->last_invalid_ms = now_ms;
   handle->invalid_pulse_count++;
-  handle->sample_sum = 0U;
-  handle->sample_index = 0U;
-  handle->sample_count = 0U;
-  handle->valid_streak = 0U;
+  PwmInput_ResetFilter(handle);
   handle->fault = PWM_INPUT_FAULT_RANGE;
 }
 
@@ -130,6 +137,7 @@ static void PwmInput_CaptureCallback(void *parent, TIM_HandleTypeDef *htim)
   PwmInput_Handle_t *handle = (PwmInput_Handle_t *)parent;
   uint16_t captured;
   uint16_t pulse_us;
+  uint32_t now_ms;
 
   if ((handle == 0) || (handle->initialized == 0U) ||
       (handle->config.timer != htim) ||
@@ -139,9 +147,11 @@ static void PwmInput_CaptureCallback(void *parent, TIM_HandleTypeDef *htim)
   }
 
   captured = (uint16_t)HAL_TIM_ReadCapturedValue(htim, handle->config.channel);
+  now_ms = HAL_GetTick();
   if (handle->waiting_for_falling_edge == 0U)
   {
     handle->rising_capture = captured;
+    handle->rising_edge_ms = now_ms;
     handle->waiting_for_falling_edge = 1U;
     __HAL_TIM_SET_CAPTUREPOLARITY(htim,
                                  handle->config.channel,
@@ -155,13 +165,16 @@ static void PwmInput_CaptureCallback(void *parent, TIM_HandleTypeDef *htim)
                                handle->config.channel,
                                TIM_INPUTCHANNELPOLARITY_RISING);
   if ((pulse_us < handle->config.minimum_valid_us) ||
-      (pulse_us > handle->config.maximum_valid_us))
+      (pulse_us > handle->config.maximum_valid_us) ||
+      /* 防止高电平跨过 16 位计数器整圈后，截断差值伪装成合法短脉冲。 */
+      ((uint32_t)(now_ms - handle->rising_edge_ms) >
+       (((uint32_t)handle->config.maximum_valid_us + 999U) / 1000U)))
   {
-    PwmInput_PublishInvalidPulse(handle, pulse_us, HAL_GetTick());
+    PwmInput_PublishInvalidPulse(handle, pulse_us, now_ms);
   }
   else
   {
-    PwmInput_PublishValidPulse(handle, pulse_us, HAL_GetTick());
+    PwmInput_PublishValidPulse(handle, pulse_us, now_ms);
   }
 }
 
@@ -235,6 +248,8 @@ uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
 
   primask = __get_PRIMASK();
   __disable_irq();
+  /* 任务传入的时间可能早于刚到的 ISR，必须在同一快照临界区重新取时。 */
+  now_ms = HAL_GetTick();
   snapshot->raw_us = handle->raw_us;
   snapshot->filtered_us = handle->filtered_us;
   snapshot->last_invalid_us = handle->last_invalid_us;
@@ -244,13 +259,8 @@ uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
   snapshot->invalid_pulse_count = handle->invalid_pulse_count;
   snapshot->fault = handle->fault;
   valid_streak = handle->valid_streak;
-  if (primask == 0U)
-  {
-    __enable_irq();
-  }
-
-  valid_age_ms = PwmInput_AgeMs(now_ms, snapshot->last_valid_ms);
-  invalid_age_ms = PwmInput_AgeMs(now_ms, snapshot->last_invalid_ms);
+  valid_age_ms = (uint32_t)(now_ms - snapshot->last_valid_ms);
+  invalid_age_ms = (uint32_t)(now_ms - snapshot->last_invalid_ms);
   snapshot->online = 0U;
   if (snapshot->valid_pulse_count == 0U)
   {
@@ -261,25 +271,15 @@ uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
   else if (valid_age_ms > handle->config.timeout_ms)
   {
     snapshot->fault = PWM_INPUT_FAULT_TIMEOUT;
-    /* 超时后丢弃旧均值窗；恢复时必须重新连续收到配置数量的有效帧。 */
-    primask = __get_PRIMASK();
-    __disable_irq();
-    if ((handle->last_valid_ms == snapshot->last_valid_ms) &&
-        (PwmInput_AgeMs(now_ms, handle->last_valid_ms) >
-         handle->config.timeout_ms))
+    /* 仅首次进入超时复位边沿；重复轮询不能打断恢复中的新脉冲。 */
+    if (handle->fault != PWM_INPUT_FAULT_TIMEOUT)
     {
-      handle->sample_sum = 0U;
-      handle->sample_index = 0U;
-      handle->sample_count = 0U;
-      handle->valid_streak = 0U;
+      PwmInput_ResetFilter(handle);
       handle->waiting_for_falling_edge = 0U;
+      handle->fault = PWM_INPUT_FAULT_TIMEOUT;
       __HAL_TIM_SET_CAPTUREPOLARITY(handle->config.timer,
                                    handle->config.channel,
                                    TIM_INPUTCHANNELPOLARITY_RISING);
-    }
-    if (primask == 0U)
-    {
-      __enable_irq();
     }
   }
   else if ((snapshot->invalid_pulse_count != 0U) &&
@@ -295,6 +295,10 @@ uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
   {
     snapshot->fault = PWM_INPUT_FAULT_NONE;
     snapshot->online = 1U;
+  }
+  if (primask == 0U)
+  {
+    __enable_irq();
   }
   return 1U;
 }

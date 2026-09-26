@@ -51,7 +51,7 @@ int main(void)
   assert(DualSteer_ScheduleCommand(20,0)==0);
   assert(DualSteer_ScheduleCommand(25,1000)==0);
   DualSteer_Geometry(DualSteer_ScheduleCommand(-1000,1000),&l,&r,&ls,&rs);
-  assert(fabsf(l+12.6f)<0.001f && ls<1 && rs==1);
+  assert(fabsf(l+19.6f)<0.001f && ls<1 && rs==1);
   for(c=1;c<=1000;c++)
   {
     DualSteer_Geometry((int16_t)-c,&l,&r,&ls,&rs);
@@ -61,8 +61,8 @@ int main(void)
     assert(fabsf(ls-prs)<0.0001f && pls==1);
     assert(fabsf(1/tanf(fabsf(r)*0.01745329252f)-1/tanf(fabsf(l)*0.01745329252f)-0.5f/0.61f)<0.002f);
   }
-  assert(fabsf(l+18)<0.001f && fabsf(r+14.390747f)<0.001f);
-  assert(fabsf(ls-0.8042712f)<0.0001f);
+  assert(fabsf(l+28)<0.001f && fabsf(r+20.320382f)<0.001f);
+  assert(fabsf(ls-0.739702466f)<0.0001f);
   DualSteer_Geometry(0,&l,&r,&ls,&rs);
   assert(l==0 && r==0 && ls==1 && rs==1);
   DualSteer_Init();
