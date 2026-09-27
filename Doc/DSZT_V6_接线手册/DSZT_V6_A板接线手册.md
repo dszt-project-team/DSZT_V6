@@ -89,8 +89,8 @@ MAIN是PWM信号，不是串口。使用与3.3 V MCU输入兼容的信号电平�
 | UART7诊断，115200 8N1 | **J38-3 / PE8 TX→USB-TTL RX；J38-4 / PE7 RX←USB-TTL TX；J38-2 GND↔GND** |
 | J38电源 | Pin1=5 V；板子已独立上电时，USB-TTL VCC不接，避免双供电 |
 | MC7 SBUS | J43-3信号、J43-2为5 V、J43-1为GND；板上反相链到PB7/USART1_RX，100000 8E2 |
-| 左WS2812数据 | J27-1 / PA8；J27-3 PGND；Pin2 NC，灯带电源单独按额定值接 |
-| 右WS2812数据 | J33-1 / PE14；J33-3 PGND；Pin2 NC，灯带电源单独按额定值接 |
+| 左WS2812数据 | J27-1 / PA8；J27-3 PGND；Pin2 NC，灯带电源单独按额定值接；数据输入端靠车头 |
+| 右WS2812数据 | J33-1 / PE14；J33-3 PGND；Pin2 NC，灯带电源单独按额定值接；数据输入端靠车头 |
 | 板载蜂鸣器 | PH6/TIM12_CH1，无需外接 |
 | USART6预留 | J36-3/PG14 TX、J36-4/PG9 RX、J36-2 PGND；无RK3566遥测任务 |
 | USART2预留 | J18-4/PD5 TX、J18-3/PD6 RX、J18-2 PGND；无业务任务 |

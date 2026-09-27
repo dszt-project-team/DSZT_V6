@@ -1534,6 +1534,11 @@
               <FilePath>../application/robot.c</FilePath>
             </File>
             <File>
+              <FileName>vehicle_status.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../application/vehicle_status.h</FilePath>
+            </File>
+            <File>
               <FileName>command_app.c</FileName>
               <FileType>1</FileType>
               <FilePath>../application/command/command_app.c</FilePath>

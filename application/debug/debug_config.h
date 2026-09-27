@@ -11,7 +11,7 @@
 #define DEBUG_APP_OUTPUT_AGGREGATE  DEBUG_APP_OUTPUT_GENERIC
 /* OID诊断固定编号1，对应DBG OID；包含目标、反馈、心跳、回读及故障计数。 */
 #define DEBUG_APP_OUTPUT_OID        1U
-/* 遥控诊断固定编号4，对应DBG SBUS；显示CH1/3/5/7、均值、模式门和帧计数。 */
+/* 遥控诊断固定编号4，对应DBG SBUS；显示通道、模式门、丢帧/失控原因及累计诊断，便于捕获偶发断连。 */
 #define DEBUG_APP_OUTPUT_SBUS       4U
 /* 编码器/转向诊断固定编号5，对应DBG MT6826S；轴角字段单位为0.1°。 */
 #define DEBUG_APP_OUTPUT_MT6826S    5U

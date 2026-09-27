@@ -10,7 +10,30 @@
 #include "bsp_callback.h"
 #include <string.h>
 
+/* 单次 DMA 最长等待时间，单位 ms；超时只发起异步终止，不提前释放缓存。 */
 #define WS2812_STRIP_DMA_TIMEOUT_MS 10U
+/* 异步终止重试间隔，单位 ms；每次任务最多调用一次，不轮询等待 DMA。 */
+#define WS2812_STRIP_DMA_RECOVERY_RETRY_MS 20U
+
+static DMA_HandleTypeDef *WS2812Strip_GetDma(const WS2812Strip_Handle_t *strip)
+{
+  if ((strip == 0) || (strip->htim == 0)) return 0;
+  switch (strip->channel)
+  {
+    case TIM_CHANNEL_1: return strip->htim->hdma[TIM_DMA_ID_CC1];
+    case TIM_CHANNEL_2: return strip->htim->hdma[TIM_DMA_ID_CC2];
+    case TIM_CHANNEL_3: return strip->htim->hdma[TIM_DMA_ID_CC3];
+    case TIM_CHANNEL_4: return strip->htim->hdma[TIM_DMA_ID_CC4];
+    default: return 0;
+  }
+}
+
+static uint8_t WS2812Strip_DmaQuiescent(const WS2812Strip_Handle_t *strip)
+{
+  DMA_HandleTypeDef *dma = WS2812Strip_GetDma(strip);
+  return ((dma != 0) && (dma->Instance != 0) && (dma->State == HAL_DMA_STATE_READY) &&
+          ((dma->Instance->CR & DMA_SxCR_EN) == 0U)) ? 1U : 0U;
+}
 
 static HAL_TIM_ActiveChannel WS2812Strip_ChannelToActive(uint32_t channel)
 {
@@ -67,7 +90,8 @@ static void WS2812Strip_PwmFinishedDispatch(void *parent, TIM_HandleTypeDef *hti
   WS2812Strip_Handle_t *strip = (WS2812Strip_Handle_t *)parent;
 
   if ((strip == 0) || (htim != strip->htim) ||
-      (htim->Channel != strip->active_channel))
+      (htim->Channel != strip->active_channel) || (strip->dma_busy == 0U) ||
+      (strip->dma_recovering != 0U) || (WS2812Strip_DmaQuiescent(strip) == 0U))
   {
     return;
   }
@@ -113,6 +137,11 @@ HAL_StatusTypeDef WS2812Strip_Init(WS2812Strip_Handle_t *strip,
   strip->reversed = (reversed != 0U) ? 1U : 0U;
   strip->zero_compare = zero_compare;
   strip->one_compare = one_compare;
+  if ((WS2812Strip_GetDma(strip) == 0) || (WS2812Strip_GetDma(strip)->Instance == 0))
+  {
+    strip->htim = 0;
+    return HAL_ERROR;
+  }
 
   memset(&callback_config, 0, sizeof(callback_config));
   callback_config.handle = htim;
@@ -130,7 +159,7 @@ HAL_StatusTypeDef WS2812Strip_Init(WS2812Strip_Handle_t *strip,
 void WS2812Strip_Task(WS2812Strip_Handle_t *strip, uint32_t now_ms)
 {
   uint32_t primask;
-  uint8_t timed_out = 0U;
+  uint8_t abort_requested = 0U;
 
   if ((strip == 0) || (strip->htim == 0))
   {
@@ -138,20 +167,40 @@ void WS2812Strip_Task(WS2812Strip_Handle_t *strip, uint32_t now_ms)
   }
 
   primask = WS2812Strip_EnterCritical();
-  if ((strip->dma_busy != 0U) &&
+  if (strip->dma_recovering != 0U)
+  {
+    if (WS2812Strip_DmaQuiescent(strip) != 0U)
+    {
+      strip->dma_recovering = 0U;
+      strip->dma_busy = 0U;
+    }
+    else if ((uint32_t)(now_ms - strip->dma_recovery_ms) >= WS2812_STRIP_DMA_RECOVERY_RETRY_MS)
+    {
+      strip->dma_recovery_ms = now_ms;
+      abort_requested = 1U;
+    }
+  }
+  else if ((strip->dma_busy != 0U) &&
       ((now_ms - strip->dma_start_ms) >= WS2812_STRIP_DMA_TIMEOUT_MS))
   {
-    strip->dma_busy = 0U;
+    strip->dma_recovering = 1U;
+    strip->dma_recovery_ms = now_ms;
     strip->error_count++;
-    timed_out = 1U;
+    abort_requested = 1U;
+  }
+  if (abort_requested != 0U)
+  {
+    __HAL_TIM_DISABLE_DMA(strip->htim, strip->dma_request);
+    __HAL_TIM_SET_COMPARE(strip->htim, strip->channel, 0U);
   }
   WS2812Strip_ExitCritical(primask);
 
-  if (timed_out != 0U)
+  if (abort_requested != 0U)
   {
-    /* 超时恢复放在主循环，允许 HAL 安全终止对应 DMA；正常路径不进入这里。 */
+    /* 本 HAL 内部是 Abort_IT，返回 HAL_OK 也不代表 DMA 已静止。
+     * READY/EN 双重确认前始终保持忙；迟到的完成回调不能提前放行。
+     * HAL 的 MOE/CEN 宏检查其他 CCER 使能位，不直接关闭共享 TIM1。 */
     (void)HAL_TIM_PWM_Stop_DMA(strip->htim, strip->channel);
-    __HAL_TIM_SET_COMPARE(strip->htim, strip->channel, 0U);
   }
 }
 
@@ -207,7 +256,7 @@ HAL_StatusTypeDef WS2812Strip_Refresh(WS2812Strip_Handle_t *strip)
 
   WS2812Strip_Task(strip, HAL_GetTick());
   primask = WS2812Strip_EnterCritical();
-  if (strip->dma_busy != 0U)
+  if ((strip->dma_busy != 0U) || (WS2812Strip_DmaQuiescent(strip) == 0U))
   {
     strip->busy_skip_count++;
     WS2812Strip_ExitCritical(primask);
@@ -244,10 +293,15 @@ HAL_StatusTypeDef WS2812Strip_Refresh(WS2812Strip_Handle_t *strip)
   if (status != HAL_OK)
   {
     primask = WS2812Strip_EnterCritical();
-    strip->dma_busy = 0U;
+    /* HAL 可能已把 TIM 通道置 BUSY，再因 DMA 启动失败返回。
+     * 无论 DMA 当前是否静止，均先 Stop_DMA 复位通道状态，再由任务确认静止。 */
+    strip->dma_recovering = 1U;
+    strip->dma_recovery_ms = HAL_GetTick();
     strip->error_count++;
-    WS2812Strip_ExitCritical(primask);
+    __HAL_TIM_DISABLE_DMA(strip->htim, strip->dma_request);
     __HAL_TIM_SET_COMPARE(strip->htim, strip->channel, 0U);
+    WS2812Strip_ExitCritical(primask);
+    (void)HAL_TIM_PWM_Stop_DMA(strip->htim, strip->channel);
   }
   return status;
 }

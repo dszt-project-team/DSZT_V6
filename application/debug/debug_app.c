@@ -2,10 +2,12 @@
 #include "debug_config.h"
 #include "bsp_callback.h"
 #include "command_config.h"
+#include "command_app.h"
 #include "chassis_config.h"
 
 #include "bsp_uart.h"
 #include "robot_def.h"
+#include "vehicle_status.h"
 #include "usart.h"
 
 #include <stdio.h>
@@ -137,15 +139,34 @@ void DebugApp_Task(uint32_t now_ms)
     s_reply = 0U;
   }
   else if (s_output_mode == DEBUG_APP_OUTPUT_SBUS)
+  {
+    CommandRcDiagnostics diag;
+    uint32_t good_age;
+    CommandApp_GetRcDiagnostics(&diag);
+    /* HAL 当前时间须晚于命令快照，避免 ISR 更新晚于本轮入参而出现下溢。 */
+    good_age = (diag.sbus.good_frame_count != 0U) ?
+        (uint32_t)(HAL_GetTick() - diag.sbus.last_good_ms) : UINT32_MAX;
     length = snprintf(s_debug_line, sizeof(s_debug_line),
-        "SBUS t=%lu rc=%u fs=%u mode=%u gate=%u frames=%lu err=%lu ch1=%u filt=%u ch3=%u ch5=%u ch7=%u thr=%d steer=%d lim=%u calraw=%u\r\n",
+        "SBUS t=%lu rc=%u fs=%u mode=%u gate=%u frames=%lu err=%lu ch1=%u filt=%u ch3=%u ch5=%u ch7=%u thr=%d steer=%d lim=%u calraw=%u ui=%u "
+        "flags=%02X fl=%u rf=%u reason=%u/%u events=%lu evtms=%lu lost=%lu streak=%u fsc=%lu uart=%lu tout=%lu good=%lu goodage=%lu revoke=%lu modebad=%lu lossms=%lu/%lu\r\n",
         (unsigned long)now_ms, g_robot_command.rc_online, g_robot_command.failsafe,
         g_robot_command.mode, g_robot_command.gate, (unsigned long)g_robot_command.frame_count,
         (unsigned long)g_robot_command.rc_error_count, g_robot_command.rc_pulse_us[COMMAND_CH_STEERING],
         g_robot_command.steering_filtered_us, g_robot_command.rc_pulse_us[COMMAND_CH_THROTTLE],
         g_robot_command.rc_pulse_us[COMMAND_CH_MODE], g_robot_command.rc_pulse_us[COMMAND_CH_SPEED_LIMIT],
         g_robot_command.throttle_permille, g_robot_command.steering_permille, g_robot_command.speed_limit_erpm,
-        (unsigned)(CHASSIS_STEER_CALIBRATION_SIDE != 0U && COMMAND_CAL_USE_RAW_STEERING != 0U));
+        (unsigned)(CHASSIS_STEER_CALIBRATION_SIDE != 0U && COMMAND_CAL_USE_RAW_STEERING != 0U),
+        (unsigned)VehicleStatus_Get(),
+        (unsigned)diag.sbus.raw_flags, diag.sbus.frame_lost, diag.sbus.failsafe,
+        diag.sbus.guard_reason, diag.sbus.last_guard_reason,
+        (unsigned long)diag.sbus.guard_event_count, (unsigned long)diag.sbus.last_guard_ms,
+        (unsigned long)diag.sbus.lost_count, diag.sbus.lost_streak,
+        (unsigned long)diag.sbus.failsafe_count, (unsigned long)diag.sbus.uart_error_count,
+        (unsigned long)diag.sbus.timeout_count, (unsigned long)diag.sbus.good_frame_count,
+        (unsigned long)good_age, (unsigned long)diag.revoke_count,
+        (unsigned long)diag.mode_reject_count, (unsigned long)diag.last_loss_ms,
+        (unsigned long)diag.max_loss_ms);
+  }
   else if (s_output_mode == DEBUG_APP_OUTPUT_MT6826S)
     length = snprintf(s_debug_line, sizeof(s_debug_line),
         "MT6826S t=%lu cal=%u encgate=%u sr=%u sf=%u raw=%u/%u sh=%u/%u zero=%u/%u ang=%d/%d at=%d/%d duty=%d/%d brk=%u/%u dir=%u/%u sched=%d gain=%u en=%u\r\n",

@@ -9,7 +9,7 @@ typedef enum {
   HAL_TIM_ACTIVE_CHANNEL_2, HAL_TIM_ACTIVE_CHANNEL_3, HAL_TIM_ACTIVE_CHANNEL_4
 } HAL_TIM_ActiveChannel;
 typedef struct { uint32_t remaining; } DMA_HandleTypeDef;
-typedef struct { DMA_HandleTypeDef *hdmarx; } UART_HandleTypeDef;
+typedef struct { DMA_HandleTypeDef *hdmarx; uint32_t ErrorCode; } UART_HandleTypeDef;
 typedef struct { HAL_TIM_ActiveChannel Channel; uint32_t capture; } TIM_HandleTypeDef;
 typedef struct { GPIO_PinState level; } GPIO_TypeDef;
 typedef struct { uint32_t Pin, Mode, Pull, Speed, Alternate; } GPIO_InitTypeDef;
@@ -45,6 +45,7 @@ extern GPIO_TypeDef test_gpio_ports[9];
 #define TIM_ICPSC_DIV1 0U
 #define DMA_IT_HT 0U
 #define UART_IT_IDLE 0U
+#define HAL_UART_ERROR_NONE 0U
 #define __HAL_DMA_GET_COUNTER(handle) ((handle)->remaining)
 #define __HAL_DMA_DISABLE_IT(handle, flag) ((void)(handle), (void)(flag))
 #define __HAL_UART_ENABLE_IT(handle, flag) ((void)(handle), (void)(flag))
