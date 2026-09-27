@@ -16,6 +16,13 @@ try {
         @{ Name='test_left_calibration'; Includes=$common },
         @{ Name='test_closed_steer'; Includes=$common },
         @{ Name='test_command'; Includes=$common },
+        @{ Name='test_debug_sbus'; Includes=@('-Itests/debug_stubs', '-Iapplication', '-Iapplication/chassis', '-Iapplication/command', '-Imodules/remote', '-Ibsp/communication', '-Ibsp/dispatch') },
+        @{ Name='test_vehicle_status'; Includes=@('-Iapplication') },
+        @{ Name='test_lighting_status'; Includes=@('-Itests/lighting_stubs', '-Iapplication', '-Imodules/lighting') },
+        @{ Name='test_lighting_zero_exit'; Includes=@('-Itests/lighting_stubs', '-Iapplication', '-Imodules/lighting') },
+        @{ Name='test_ws2812_recovery'; Includes=@('-Itests/ws2812_stubs', '-Ibsp/dispatch') },
+        @{ Name='test_buzzer_status'; Includes=@('-Itests/buzzer_stubs', '-Iapplication', '-Ibsp/buzzer') },
+        @{ Name='test_buzzer_patterns'; Includes=@('-Itests/buzzer_stubs', '-Ibsp/buzzer') },
         @{ Name='test_steer_disabled'; Includes=$common },
         @{ Name='test_steer_slew'; Includes=$common },
         @{ Name='test_oid_stop_guard'; Includes=$common },
@@ -28,6 +35,7 @@ try {
         @{ Name='test_chassis_control'; Includes=@('-Itests/chassis_stubs', '-Iapplication', '-Iapplication/chassis', '-Ibsp/communication', '-Imodules/drive', '-Imodules/input') },
         @{ Name='test_pwm_input'; Includes=@('-Itests/pwm_stubs', '-Ibsp/dispatch') },
         @{ Name='test_sbus_timestamp'; Includes=@('-Itests/input_time_stubs', '-Ibsp/dispatch') },
+        @{ Name='test_sbus_command_integration'; Includes=@('-Itests/input_time_stubs', '-Itests/sbus_integration_stubs', '-Ibsp/dispatch', '-Imodules/remote', '-Iapplication', '-Iapplication/chassis') },
         @{ Name='test_encoder_timestamp'; Includes=@('-Itests/input_time_stubs', '-Ibsp/dispatch') }
     )
     foreach ($case in $cases) {

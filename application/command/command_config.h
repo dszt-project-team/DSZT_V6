@@ -49,7 +49,7 @@
 #define COMMAND_SWITCH_AUTO_MIN_US       1800U
 /* CH5飞控自动窗口上界，当前2100 μs，含边界；各窗口之外按非法档位处理。 */
 #define COMMAND_SWITCH_AUTO_MAX_US       2100U
-/* CH5新档位连续新SBUS帧确认数，当前2；也用于非法/不稳定档位锁车判定，改大增加防抖及切档延迟，须≥1。 */
+/* CH5新档位连续健康新SBUS帧确认数，当前2；连续偏离原档的非法/其他档位合并计数，未确认新档则锁车，须1～255。 */
 #define COMMAND_SWITCH_CONFIRM_FRAMES       2U
 /* 手动油门连续回中释放时间，当前200 ms；增大更保守但放行更慢，转向另有独立回中门。 */
 #define COMMAND_CENTER_RELEASE_MS          200U
@@ -66,6 +66,9 @@
 
 #if COMMAND_STEER_FILTER_WINDOW < 1U || COMMAND_STEER_FILTER_WINDOW > 16U
 #error "CH1 filter window must be 1..16"
+#endif
+#if COMMAND_SWITCH_CONFIRM_FRAMES < 1U || COMMAND_SWITCH_CONFIRM_FRAMES > 255U
+#error "CH5 confirmation count must be 1..255"
 #endif
 #if COMMAND_THROTTLE_MAX_OFFSET_US <= COMMAND_DEADBAND_US
 #error "Throttle endpoint must exceed its deadband"

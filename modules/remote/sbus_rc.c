@@ -61,6 +61,39 @@ static uint16_t SBusRc_NormalizePulseUs(uint16_t raw)
   return (uint16_t)(1000U + scaled);
 }
 
+/* 任务调用者须持有临界区；ISR 与 USART/DMA 回调同优先级，不会互相重入。
+ * 只记录新进入/新增原因，避免连续坏帧或周期维护刷掉现场事件时间。 */
+static void SBusRc_EnterGuard(SBusRc_Handle_t *rc, uint8_t reason, uint32_t now_ms)
+{
+  if ((reason & (uint8_t)~rc->data.guard_reason) != 0U)
+  {
+    if (((reason & SBUS_RC_REASON_TIMEOUT) != 0U) &&
+        ((rc->data.guard_reason & SBUS_RC_REASON_TIMEOUT) == 0U))
+    {
+      rc->data.timeout_count++;
+    }
+    rc->data.guard_reason |= reason;
+    rc->data.last_guard_reason = rc->data.guard_reason;
+    rc->data.last_guard_ms = now_ms;
+    rc->data.guard_event_count++;
+  }
+  rc->data.online = 0U;
+}
+
+static void SBusRc_CheckAge(SBusRc_Handle_t *rc, uint32_t now_ms)
+{
+  if ((uint32_t)(now_ms - rc->data.last_update_ms) > SBUS_RC_TIMEOUT_MS)
+  {
+    SBusRc_EnterGuard(rc, SBUS_RC_REASON_TIMEOUT, now_ms);
+  }
+  if ((rc->data.frame_lost != 0U) &&
+      ((rc->has_good_frame == 0U) ||
+       ((uint32_t)(now_ms - rc->data.last_good_ms) >= SBUS_RC_FRAME_LOST_HOLD_MS)))
+  {
+    SBusRc_EnterGuard(rc, SBUS_RC_REASON_FRAME_LOST, now_ms);
+  }
+}
+
 /**
   * @brief 从 25 字节 SBUS 帧中解包 16 路 11 位通道值。
   * @param rc     SBUS 驱动实例。
@@ -75,6 +108,41 @@ static void SBusRc_ParseFrame(SBusRc_Handle_t *rc, uint32_t now_ms)
   if ((b[0] != SBUS_RC_HEADER_BYTE) || (b[24] != SBUS_RC_FOOTER_BYTE))
   {
     rc->data.error_count++;
+    return;
+  }
+
+  /* 先结算旧帧的时限，再接纳恢复帧；即使任务尚未轮询，故障事件也不会消失。 */
+  SBusRc_CheckAge(rc, now_ms);
+  rc->data.raw_flags = b[23];
+  rc->data.frame_lost = ((b[23] & SBUS_RC_FLAG_FRAME_LOST) != 0U) ? 1U : 0U;
+  rc->data.failsafe =
+      ((b[23] & (SBUS_RC_FLAG_FAILSAFE | SBUS_RC_FLAG_FAILSAFE_MC7)) != 0U) ? 1U : 0U;
+  rc->data.last_update_ms = now_ms;
+  rc->data.frame_count++;
+  if (rc->data.frame_lost != 0U)
+  {
+    rc->data.lost_count++;
+    if (rc->data.lost_streak < UINT16_MAX) rc->data.lost_streak++;
+  }
+  else
+  {
+    rc->data.lost_streak = 0U;
+  }
+  if (rc->data.failsafe != 0U)
+  {
+    rc->data.failsafe_count++;
+    SBusRc_EnterGuard(rc, SBUS_RC_REASON_FAILSAFE, now_ms);
+    return;
+  }
+  if (rc->data.frame_lost != 0U)
+  {
+    if ((rc->has_good_frame == 0U) ||
+        (rc->data.lost_streak >= SBUS_RC_FRAME_LOST_TRIP_FRAMES) ||
+        ((uint32_t)(now_ms - rc->data.last_good_ms) >= SBUS_RC_FRAME_LOST_HOLD_MS))
+    {
+      SBusRc_EnterGuard(rc, SBUS_RC_REASON_FRAME_LOST, now_ms);
+    }
+    /* 丢帧的通道内容不可用于新运动目标或 CH5 确认；只有近期健康基线才允许短暂保持。 */
     return;
   }
 
@@ -100,12 +168,11 @@ static void SBusRc_ParseFrame(SBusRc_Handle_t *rc, uint32_t now_ms)
     rc->data.pulse_us[i] = SBusRc_NormalizePulseUs(ch[i]);
   }
 
-  rc->data.frame_lost = ((b[23] & SBUS_RC_FLAG_FRAME_LOST) != 0U) ? 1U : 0U;
-  rc->data.failsafe =
-      ((b[23] & (SBUS_RC_FLAG_FAILSAFE | SBUS_RC_FLAG_FAILSAFE_MC7)) != 0U) ? 1U : 0U;
-  rc->data.online = (rc->data.failsafe == 0U) ? 1U : 0U;
-  rc->data.last_update_ms = now_ms;
-  rc->data.frame_count++;
+  rc->has_good_frame = 1U;
+  rc->data.good_frame_count++;
+  rc->data.last_good_ms = now_ms;
+  rc->data.guard_reason = 0U;
+  rc->data.online = 1U;
 }
 
 /**
@@ -148,7 +215,9 @@ static void SBusRc_ProcessDmaNewBytes(SBusRc_Handle_t *rc, uint32_t now_ms)
   uint16_t pos;
   uint16_t i;
 
-  if ((rc == 0) || (rc->huart == 0) || (rc->huart->hdmarx == 0))
+  if ((rc == 0) || (rc->huart == 0) || (rc->huart->hdmarx == 0) ||
+      (rc->rx_active == 0U) || (rc->rx_restart_pending != 0U) ||
+      (rc->huart->ErrorCode != HAL_UART_ERROR_NONE))
   {
     return;
   }
@@ -203,6 +272,7 @@ void SBusRc_Init(SBusRc_Handle_t *rc, UART_HandleTypeDef *huart)
 
   memset(rc, 0, sizeof(*rc));
   rc->huart = huart;
+  rc->data.last_update_ms = HAL_GetTick();
   memset(&callback_config, 0, sizeof(callback_config));
   callback_config.handle = huart;
   callback_config.parent = rc;
@@ -228,18 +298,41 @@ void SBusRc_Init(SBusRc_Handle_t *rc, UART_HandleTypeDef *huart)
   */
 void SBusRc_StartReceive(SBusRc_Handle_t *rc)
 {
+  uint32_t primask;
+  uint32_t now_ms;
+  HAL_StatusTypeDef status;
+
   if ((rc == 0) || (rc->huart == 0))
   {
     return;
   }
 
-  rc->dma_last_pos = 0U;
-  (void)HAL_UART_Receive_DMA(rc->huart, rc->dma_buffer, SBUS_RC_DMA_BUFFER_SIZE);
-  if (rc->huart->hdmarx != 0)
+  primask = __get_PRIMASK();
+  __disable_irq();
+  now_ms = HAL_GetTick();
+  if (rc->rx_active == 0U)
   {
-    __HAL_DMA_DISABLE_IT(rc->huart->hdmarx, DMA_IT_HT);
+    rc->dma_last_pos = 0U;
+    rc->index = 0U;
+    rc->rx_retry_ms = now_ms;
+    status = (rc->huart->hdmarx == 0) ? HAL_ERROR :
+             HAL_UART_Receive_DMA(rc->huart, rc->dma_buffer, SBUS_RC_DMA_BUFFER_SIZE);
+    if (status == HAL_OK)
+    {
+      rc->rx_active = 1U;
+      rc->rx_restart_pending = 0U;
+      __HAL_DMA_DISABLE_IT(rc->huart->hdmarx, DMA_IT_HT);
+      __HAL_UART_ENABLE_IT(rc->huart, UART_IT_IDLE);
+    }
+    else
+    {
+      rc->rx_restart_pending = 1U;
+      rc->data.error_count++;
+      rc->data.rx_start_error_count++;
+      SBusRc_EnterGuard(rc, SBUS_RC_REASON_RX_START, now_ms);
+    }
   }
-  __HAL_UART_ENABLE_IT(rc->huart, UART_IT_IDLE);
+  if (primask == 0U) __enable_irq();
 }
 
 /**
@@ -250,6 +343,8 @@ void SBusRc_StartReceive(SBusRc_Handle_t *rc)
 void SBusRc_Task(SBusRc_Handle_t *rc, uint32_t now_ms)
 {
   uint32_t primask;
+  uint8_t retry_rx = 0U;
+  HAL_StatusTypeDef status;
 
   if (rc == 0)
   {
@@ -262,13 +357,34 @@ void SBusRc_Task(SBusRc_Handle_t *rc, uint32_t now_ms)
   primask = __get_PRIMASK();
   __disable_irq();
   now_ms = HAL_GetTick();
-  if ((uint32_t)(now_ms - rc->data.last_update_ms) > SBUS_RC_TIMEOUT_MS)
+  SBusRc_CheckAge(rc, now_ms);
+  if ((primask == 0U) && (rc->rx_restart_pending != 0U) &&
+      ((uint32_t)(now_ms - rc->rx_retry_ms) >= SBUS_RC_RX_RETRY_MS))
   {
-    rc->data.online = 0U;
+    rc->rx_retry_ms = now_ms;
+    retry_rx = 1U;
   }
   if (primask == 0U)
   {
     __enable_irq();
+  }
+  if ((retry_rx != 0U) && (rc->huart != 0))
+  {
+    /* HAL 的 DMA Abort 可能轮询等待硬件，因此仅在任务、开中断状态下执行。 */
+    status = HAL_UART_AbortReceive(rc->huart);
+    if (status == HAL_OK)
+    {
+      SBusRc_StartReceive(rc);
+    }
+    else
+    {
+      primask = __get_PRIMASK();
+      __disable_irq();
+      rc->data.error_count++;
+      rc->data.rx_start_error_count++;
+      SBusRc_EnterGuard(rc, SBUS_RC_REASON_RX_START, HAL_GetTick());
+      if (primask == 0U) __enable_irq();
+    }
   }
 }
 
@@ -316,12 +432,15 @@ void SBusRc_UartErrorCallback(SBusRc_Handle_t *rc, UART_HandleTypeDef *huart)
     return;
   }
 
-  (void)HAL_UART_AbortReceive(rc->huart);
   rc->index = 0U;
   rc->dma_last_pos = 0U;
-  rc->data.online = 0U;
+  rc->rx_active = 0U;
+  rc->rx_restart_pending = 1U;
+  rc->has_good_frame = 0U;
+  rc->rx_retry_ms = HAL_GetTick();
   rc->data.error_count++;
-  SBusRc_StartReceive(rc);
+  rc->data.uart_error_count++;
+  SBusRc_EnterGuard(rc, SBUS_RC_REASON_UART, rc->rx_retry_ms);
 }
 
 /**

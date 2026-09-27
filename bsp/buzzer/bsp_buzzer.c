@@ -1,6 +1,7 @@
 #include "bsp_buzzer.h"
 
 #include <stddef.h>
+#include <string.h>
 
 typedef struct
 {
@@ -13,9 +14,9 @@ typedef struct
   TIM_HandleTypeDef *timer;
   const BSP_BuzzerStep *pattern;
   uint32_t channel;
-  uint32_t phase_started_ms;
+  uint32_t started_ms;
+  uint32_t period_ms;
   BSP_BuzzerCue cue;
-  BSP_BuzzerCue pending_cue;
   uint8_t phase_count;
   uint8_t phase;
   uint8_t repeating;
@@ -24,263 +25,177 @@ typedef struct
 
 static BSP_BuzzerContext s_buzzer;
 
-/* 蜂鸣器-01：接收机上线采用三音上升，模拟飞控就绪提示。 */
-static const BSP_BuzzerStep s_rc_connected_pattern[] =
-{
-  {2200U,  70U},
-  {   0U,  35U},
-  {2700U,  70U},
-  {   0U,  35U},
-  {3300U, 140U}
-};
+/* 音型仅用于简洁状态辨识；频率为1500～3300 Hz范围内的固定值。 */
+static const BSP_BuzzerStep s_boot[] =
+  {{1800U,60U},{0U,30U},{2400U,60U},{0U,30U},{3000U,80U}};
+static const BSP_BuzzerStep s_connected[] =
+  {{2200U,55U},{0U,45U},{2700U,55U}};
+static const BSP_BuzzerStep s_manual[] =
+  {{2200U,60U},{0U,40U},{3000U,80U}};
+static const BSP_BuzzerStep s_auto[] =
+  {{2200U,50U},{0U,30U},{2700U,50U},{0U,30U},{3100U,70U}};
+static const BSP_BuzzerStep s_locked[] =
+  {{2800U,60U},{0U,40U},{1800U,80U}};
+static const BSP_BuzzerStep s_startup_wait[] =
+  {{1800U,55U},{0U,45U},{1800U,55U},{0U,4845U}};
+static const BSP_BuzzerStep s_oid_fault[] =
+  {{1700U,120U},{0U,3880U}};
+static const BSP_BuzzerStep s_fc_fault[] =
+  {{2600U,90U},{0U,90U},{2600U,90U},{0U,3730U}};
+static const BSP_BuzzerStep s_steer_fault[] =
+  {{2000U,90U},{0U,90U},{2000U,90U},{0U,90U},{2000U,90U},{0U,3550U}};
+static const BSP_BuzzerStep s_rc_lost[] =
+  {{1800U,90U},{0U,90U},{2400U,90U},{0U,2730U}};
 
-/* 蜂鸣器-02：除刹车外的有效模式切换统一使用同一组短促双音。 */
-static const BSP_BuzzerStep s_mode_change_pattern[] =
+static uint8_t BSP_Buzzer_Priority(BSP_BuzzerCue cue)
 {
-  {2500U, 60U},
-  {   0U, 30U},
-  {3000U, 90U}
-};
-
-/* 蜂鸣器-03：进入任一刹车模式时使用三音下降，和普通模式切换明确区分。 */
-static const BSP_BuzzerStep s_brake_pattern[] =
-{
-  {3300U,  70U},
-  {   0U,  25U},
-  {2700U,  70U},
-  {   0U,  25U},
-  {2200U, 140U}
-};
-
-/* 蜂鸣器-04：仅 左 OID 故障，低频长音每 2 秒重复一次。 */
-static const BSP_BuzzerStep s_oid_left_fault_pattern[] =
-{
-  {2200U,  400U},
-  {   0U, 1600U}
-};
-
-/* 蜂鸣器-05：仅 右 OID 故障，高频双短音每 2 秒重复一次。 */
-static const BSP_BuzzerStep s_oid_right_fault_pattern[] =
-{
-  {3300U,  120U},
-  {   0U,  100U},
-  {3300U,  120U},
-  {   0U, 1660U}
-};
-
-/* 蜂鸣器-06：双 OID 故障，高低交替四短音每 2 秒重复一次。 */
-static const BSP_BuzzerStep s_oid_dual_fault_pattern[] =
-{
-  {2200U, 100U},
-  {   0U,  70U},
-  {3300U, 100U},
-  {   0U,  70U},
-  {2200U, 100U},
-  {   0U,  70U},
-  {3300U, 100U},
-  {   0U, 1390U}
-};
+  switch (cue)
+  {
+    case BSP_BUZZER_CUE_RC_LOST: return 100U;
+    case BSP_BUZZER_CUE_STEER_FAULT: return 90U;
+    case BSP_BUZZER_CUE_OID_LEFT_FAULT:
+    case BSP_BUZZER_CUE_OID_RIGHT_FAULT:
+    case BSP_BUZZER_CUE_OID_DUAL_FAULT: return 80U;
+    case BSP_BUZZER_CUE_FC_MAIN1_TIMEOUT:
+    case BSP_BUZZER_CUE_FC_MAIN2_TIMEOUT:
+    case BSP_BUZZER_CUE_FC_DUAL_TIMEOUT: return 70U;
+    case BSP_BUZZER_CUE_STARTUP_WAIT: return 60U;
+    case BSP_BUZZER_CUE_BRAKE: return 40U;
+    case BSP_BUZZER_CUE_MANUAL_READY:
+    case BSP_BUZZER_CUE_AUTO_READY:
+    case BSP_BUZZER_CUE_MODE_CHANGE: return 30U;
+    case BSP_BUZZER_CUE_RC_CONNECTED: return 20U;
+    case BSP_BUZZER_CUE_BOOT: return 10U;
+    default: return 0U;
+  }
+}
 
 static uint32_t BSP_Buzzer_GetCounterClockHz(void)
 {
-  uint32_t timer_clock_hz = HAL_RCC_GetPCLK1Freq();
-
-  /* STM32F4 的 APB1 分频不为 1 时，TIM12 时钟自动乘 2。 */
-  if ((RCC->CFGR & RCC_CFGR_PPRE1) != 0U)
-  {
-    timer_clock_hz *= 2U;
-  }
-  return timer_clock_hz / (s_buzzer.timer->Init.Prescaler + 1U);
+  uint32_t clock_hz = HAL_RCC_GetPCLK1Freq();
+  /* APB1分频不为1时，STM32F4的TIM12时钟乘2；不修改CubeMX预分频配置。 */
+  if ((RCC->CFGR & RCC_CFGR_PPRE1) != 0U) clock_hz *= 2U;
+  return clock_hz / (s_buzzer.timer->Init.Prescaler + 1U);
 }
 
 static void BSP_Buzzer_SetTone(uint16_t frequency_hz)
 {
-  uint32_t period_counts;
-
-  if ((s_buzzer.initialized == 0U) || (s_buzzer.timer == NULL))
-  {
-    return;
-  }
+  uint32_t counts;
+  if (s_buzzer.initialized == 0U || s_buzzer.timer == NULL) return;
   if (frequency_hz == 0U)
   {
     __HAL_TIM_SET_COMPARE(s_buzzer.timer, s_buzzer.channel, 0U);
     return;
   }
-
-  period_counts =
-      (BSP_Buzzer_GetCounterClockHz() + ((uint32_t)frequency_hz / 2U)) /
-      (uint32_t)frequency_hz;
-  if (period_counts < 2U)
-  {
-    period_counts = 2U;
-  }
-  if (period_counts > 65536U)
-  {
-    period_counts = 65536U;
-  }
-
-  __HAL_TIM_SET_AUTORELOAD(s_buzzer.timer, period_counts - 1U);
+  counts = (BSP_Buzzer_GetCounterClockHz() + frequency_hz / 2U) / frequency_hz;
+  if (counts < 2U) counts = 2U;
+  if (counts > 65536U) counts = 65536U;
+  __HAL_TIM_SET_AUTORELOAD(s_buzzer.timer, counts - 1U);
   __HAL_TIM_SET_COUNTER(s_buzzer.timer, 0U);
-  __HAL_TIM_SET_COMPARE(s_buzzer.timer,
-                        s_buzzer.channel,
-                        period_counts / 2U);
+  __HAL_TIM_SET_COMPARE(s_buzzer.timer, s_buzzer.channel, counts / 2U);
 }
 
 static const BSP_BuzzerStep *BSP_Buzzer_GetPattern(BSP_BuzzerCue cue,
-                                                    uint8_t *phase_count,
-                                                    uint8_t *repeating)
+                                                  uint8_t *count,
+                                                  uint8_t *repeating)
 {
-  *phase_count = 0U;
+  *count = 0U;
   *repeating = 0U;
   switch (cue)
   {
-    case BSP_BUZZER_CUE_RC_CONNECTED:
-      *phase_count = (uint8_t)(sizeof(s_rc_connected_pattern) /
-                               sizeof(s_rc_connected_pattern[0]));
-      return s_rc_connected_pattern;
-    case BSP_BUZZER_CUE_BRAKE:
-      *phase_count = (uint8_t)(sizeof(s_brake_pattern) /
-                               sizeof(s_brake_pattern[0]));
-      return s_brake_pattern;
+    case BSP_BUZZER_CUE_BOOT: *count=5U; return s_boot;
+    case BSP_BUZZER_CUE_RC_CONNECTED: *count=3U; return s_connected;
     case BSP_BUZZER_CUE_MODE_CHANGE:
-      *phase_count = (uint8_t)(sizeof(s_mode_change_pattern) /
-                               sizeof(s_mode_change_pattern[0]));
-      return s_mode_change_pattern;
-    case BSP_BUZZER_CUE_FC_MAIN1_TIMEOUT:
+    case BSP_BUZZER_CUE_MANUAL_READY: *count=3U; return s_manual;
+    case BSP_BUZZER_CUE_AUTO_READY: *count=5U; return s_auto;
+    case BSP_BUZZER_CUE_BRAKE: *count=3U; return s_locked;
+    case BSP_BUZZER_CUE_STARTUP_WAIT: *count=4U; *repeating=1U; return s_startup_wait;
     case BSP_BUZZER_CUE_OID_LEFT_FAULT:
-      *phase_count = (uint8_t)(sizeof(s_oid_left_fault_pattern) /
-                               sizeof(s_oid_left_fault_pattern[0]));
-      *repeating = 1U;
-      return s_oid_left_fault_pattern;
-    case BSP_BUZZER_CUE_FC_MAIN2_TIMEOUT:
     case BSP_BUZZER_CUE_OID_RIGHT_FAULT:
-      *phase_count = (uint8_t)(sizeof(s_oid_right_fault_pattern) /
-                               sizeof(s_oid_right_fault_pattern[0]));
-      *repeating = 1U;
-      return s_oid_right_fault_pattern;
-    case BSP_BUZZER_CUE_FC_DUAL_TIMEOUT:
-    case BSP_BUZZER_CUE_OID_DUAL_FAULT:
-      *phase_count = (uint8_t)(sizeof(s_oid_dual_fault_pattern) /
-                               sizeof(s_oid_dual_fault_pattern[0]));
-      *repeating = 1U;
-      return s_oid_dual_fault_pattern;
-    case BSP_BUZZER_CUE_SILENT:
-    default:
-      return NULL;
+    case BSP_BUZZER_CUE_OID_DUAL_FAULT: *count=2U; *repeating=1U; return s_oid_fault;
+    case BSP_BUZZER_CUE_FC_MAIN1_TIMEOUT:
+    case BSP_BUZZER_CUE_FC_MAIN2_TIMEOUT:
+    case BSP_BUZZER_CUE_FC_DUAL_TIMEOUT: *count=4U; *repeating=1U; return s_fc_fault;
+    case BSP_BUZZER_CUE_STEER_FAULT: *count=6U; *repeating=1U; return s_steer_fault;
+    case BSP_BUZZER_CUE_RC_LOST: *count=4U; *repeating=1U; return s_rc_lost;
+    default: return NULL;
   }
 }
 
 uint8_t BSP_Buzzer_Init(TIM_HandleTypeDef *timer, uint32_t channel)
 {
-  if (timer == NULL)
-  {
-    return 0U;
-  }
-
+  if (s_buzzer.initialized != 0U) BSP_Buzzer_Stop();
+  memset(&s_buzzer, 0, sizeof(s_buzzer));
+  if (timer == NULL) return 0U;
   s_buzzer.timer = timer;
   s_buzzer.channel = channel;
-  s_buzzer.pattern = NULL;
-  s_buzzer.phase_started_ms = 0U;
-  s_buzzer.cue = BSP_BUZZER_CUE_SILENT;
-  s_buzzer.pending_cue = BSP_BUZZER_CUE_SILENT;
-  s_buzzer.phase_count = 0U;
-  s_buzzer.phase = 0U;
-  s_buzzer.repeating = 0U;
-  s_buzzer.initialized = 0U;
-
   __HAL_TIM_SET_COMPARE(timer, channel, 0U);
-  if (HAL_TIM_PWM_Start(timer, channel) != HAL_OK)
-  {
-    return 0U;
-  }
-
+  if (HAL_TIM_PWM_Start(timer, channel) != HAL_OK) return 0U;
   s_buzzer.initialized = 1U;
-  BSP_Buzzer_SetTone(0U);
   return 1U;
 }
 
 void BSP_Buzzer_Play(BSP_BuzzerCue cue, uint32_t now_ms)
 {
   const BSP_BuzzerStep *pattern;
-  uint8_t phase_count;
-  uint8_t repeating;
-
-  if ((s_buzzer.initialized == 0U) || (cue == BSP_BUZZER_CUE_SILENT))
-  {
-    return;
-  }
-
-  /* 蜂鸣器-07：高优先级提示可抢占低优先级节奏。 */
-  if ((s_buzzer.cue != BSP_BUZZER_CUE_SILENT) && (cue < s_buzzer.cue))
-  {
-    /* 连接提示期间发生普通模式切换时保留一次，当前节奏结束后补播。 */
-    s_buzzer.pending_cue = cue;
-    return;
-  }
-
-  pattern = BSP_Buzzer_GetPattern(cue, &phase_count, &repeating);
-  if ((pattern == NULL) || (phase_count == 0U))
-  {
-    return;
-  }
-
-  s_buzzer.cue = cue;
-  s_buzzer.pending_cue = BSP_BUZZER_CUE_SILENT;
+  uint8_t count, repeating, i;
+  uint32_t period_ms = 0U;
+  if (s_buzzer.initialized == 0U || cue == BSP_BUZZER_CUE_SILENT) return;
+  /* 不保留待播队列：过时的解锁音不能在故障恢复后误播。 */
+  if (BSP_Buzzer_Priority(cue) < BSP_Buzzer_Priority(s_buzzer.cue)) return;
+  if (cue == s_buzzer.cue) return;
+  pattern = BSP_Buzzer_GetPattern(cue, &count, &repeating);
+  if (pattern == NULL || count == 0U) return;
+  for (i=0U; i<count; i++) period_ms += pattern[i].duration_ms;
+  if (period_ms == 0U) return;
   s_buzzer.pattern = pattern;
-  s_buzzer.phase_count = phase_count;
+  s_buzzer.cue = cue;
+  s_buzzer.started_ms = now_ms;
+  s_buzzer.period_ms = period_ms;
+  s_buzzer.phase_count = count;
   s_buzzer.phase = 0U;
   s_buzzer.repeating = repeating;
-  s_buzzer.phase_started_ms = now_ms;
   BSP_Buzzer_SetTone(pattern[0].frequency_hz);
 }
 
 void BSP_Buzzer_Stop(void)
 {
   s_buzzer.cue = BSP_BUZZER_CUE_SILENT;
-  s_buzzer.pending_cue = BSP_BUZZER_CUE_SILENT;
   s_buzzer.pattern = NULL;
   s_buzzer.phase_count = 0U;
   s_buzzer.phase = 0U;
   s_buzzer.repeating = 0U;
+  s_buzzer.period_ms = 0U;
   BSP_Buzzer_SetTone(0U);
 }
 
 void BSP_Buzzer_Task(uint32_t now_ms)
 {
-  BSP_BuzzerCue pending_cue;
-  uint16_t duration_ms;
-
-  if ((s_buzzer.initialized == 0U) ||
-      (s_buzzer.cue == BSP_BUZZER_CUE_SILENT) ||
-      (s_buzzer.pattern == NULL))
+  uint32_t elapsed, position;
+  uint8_t phase;
+  if (s_buzzer.initialized == 0U || s_buzzer.pattern == NULL || s_buzzer.period_ms == 0U) return;
+  elapsed = now_ms - s_buzzer.started_ms;
+  if (s_buzzer.repeating == 0U && elapsed >= s_buzzer.period_ms)
   {
+    BSP_Buzzer_Stop();
     return;
   }
-
-  duration_ms = s_buzzer.pattern[s_buzzer.phase].duration_ms;
-  while ((uint32_t)(now_ms - s_buzzer.phase_started_ms) >= duration_ms)
+  if (s_buzzer.repeating != 0U)
   {
-    s_buzzer.phase_started_ms += duration_ms;
-    s_buzzer.phase++;
-    if (s_buzzer.phase >= s_buzzer.phase_count)
-    {
-      if (s_buzzer.repeating != 0U)
-      {
-        s_buzzer.phase = 0U;
-        BSP_Buzzer_SetTone(s_buzzer.pattern[0].frequency_hz);
-        duration_ms = s_buzzer.pattern[0].duration_ms;
-        continue;
-      }
-      pending_cue = s_buzzer.pending_cue;
-      BSP_Buzzer_Stop();
-      if (pending_cue != BSP_BUZZER_CUE_SILENT)
-      {
-        BSP_Buzzer_Play(pending_cue, now_ms);
-      }
-      return;
-    }
-    BSP_Buzzer_SetTone(s_buzzer.pattern[s_buzzer.phase].frequency_hz);
-    duration_ms = s_buzzer.pattern[s_buzzer.phase].duration_ms;
+    position = elapsed % s_buzzer.period_ms;
+    s_buzzer.started_ms = now_ms - position;
+  }
+  else position = elapsed;
+  /* 最多检查六个固定音段；时间长跳时直接跳到当下，不追赶或补播旧节拍。 */
+  for (phase=0U; phase<s_buzzer.phase_count; phase++)
+  {
+    if (position < s_buzzer.pattern[phase].duration_ms) break;
+    position -= s_buzzer.pattern[phase].duration_ms;
+  }
+  if (phase < s_buzzer.phase_count && phase != s_buzzer.phase)
+  {
+    s_buzzer.phase = phase;
+    BSP_Buzzer_SetTone(s_buzzer.pattern[phase].frequency_hz);
   }
 }
 

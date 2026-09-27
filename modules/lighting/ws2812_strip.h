@@ -40,7 +40,9 @@ typedef struct
   WS2812Strip_Color_t pixels[WS2812_STRIP_MAX_LED_COUNT];
   uint16_t dma_buffer[WS2812_STRIP_DMA_WORD_COUNT];
   volatile uint8_t dma_busy;
+  volatile uint8_t dma_recovering; /* 异步终止期间保持忙，DMA READY 且 EN=0 后才可复用缓存。 */
   volatile uint32_t dma_start_ms;
+  volatile uint32_t dma_recovery_ms; /* 最近异步终止尝试时间，用于无阻塞的有界重试。 */
   volatile uint32_t done_count;
   volatile uint32_t busy_skip_count;
   volatile uint32_t error_count;
