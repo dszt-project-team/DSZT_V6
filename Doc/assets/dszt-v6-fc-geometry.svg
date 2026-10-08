@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1480" viewBox="0 0 1600 1480" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1940" viewBox="0 0 1600 1940" role="img" aria-labelledby="title desc">
   <title id="title">DSZT_V6_FC 前驱双转向底盘参数示意图</title>
   <desc id="desc">俯视左转示例，车头朝上。轴距610毫米，前后轮距均500毫米，轮胎外径235毫米、宽90毫米。零油门满舵内外轮角28度和20.32度，对应转向电机输出轴角76.13度和66.92度。后轴中心转弯半径1.397米，内外前轮中心半径1.299米和1.757米。4900 ERPM、14极对时直行理论速度15.50千米每小时。28度满舵与最高车速不是同一工况。</desc>
   <defs>
@@ -27,7 +27,7 @@
       <circle r="5" fill="#ffffff"/>
     </g>
   </defs>
-  <rect width="1600" height="1480" fill="#f1f5f9"/>
+  <rect width="1600" height="1940" fill="#f1f5f9"/>
   <text x="50" y="66" class="title">DSZT_V6_FC · 前驱双转向底盘</text>
   <text x="50" y="109" class="body muted">当前配置几何示意｜左转示例｜MAIN1 行走 · MAIN2 转向｜2026-10-08</text>
 
@@ -61,8 +61,6 @@
   <path d="M350 365 V272 M630 365 V272" class="axis"/>
   <path d="M350 365 L308.22 286.42" stroke="#b96213" stroke-width="3"/>
   <path d="M630 365 L598.75 280.55" stroke="#247ab9" stroke-width="3"/>
-  <path d="M350 300 A65 65 0 0 0 319.48 307.61" fill="none" stroke="#b96213" stroke-width="4"/>
-  <path d="M630 300 A65 65 0 0 0 607.42 304.04" fill="none" stroke="#247ab9" stroke-width="4"/>
 
   <text x="77" y="306" class="body strong inner">左前内轮 · OID 1</text>
   <text x="77" y="344" class="heading inner">δᵢ = 28.00°</text>
@@ -121,8 +119,68 @@
   <text x="998" y="800" class="small">零油门内轮 28°；4900 ERPM 目标时为 19.6°。</text>
   <text x="998" y="832" class="small muted">轴角目标保护 80°，反馈保护 82°。</text>
 
+  <rect x="40" y="886" width="1520" height="430" rx="18" class="panel"/>
+  <text x="72" y="930" class="heading">03 四个角度放大对照</text>
+  <text x="72" y="967" class="body muted">灰色虚线 = 各自直行零位；彩色实线 = 目标方向；彩色扇形 = 两者之间的夹角</text>
+  <path d="M430 991 V1270 M800 991 V1270 M1170 991 V1270" stroke="#dde5ec" stroke-width="2"/>
+  <text x="245" y="1010" text-anchor="middle" class="body strong inner">左前内轮 · 轮胎角 δᵢ</text>
+  <text x="615" y="1010" text-anchor="middle" class="body strong outer">右前外轮 · 轮胎角 δₒ</text>
+  <text x="985" y="1010" text-anchor="middle" class="body strong inner">内侧电机 · 输出轴角 αᵢ</text>
+  <text x="1355" y="1010" text-anchor="middle" class="body strong outer">外侧电机 · 输出轴角 αₒ</text>
+  <!-- Common scale and zero direction make the two different angle domains explicit. -->
+  <g transform="translate(300 1220)">
+    <path d="M0 0 L0 -125 A125 125 0 0 0 -58.684 -110.368 Z" fill="#f3c58e" fill-opacity="0.65"/>
+    <path d="M0 -125 A125 125 0 0 0 -58.684 -110.368" stroke="#b96213" stroke-width="4" fill="none"/>
+    <path d="M0 8 V-180" class="axis"/>
+    <path d="M0 0 L-79.810 -150.101" stroke="#b96213" stroke-width="5" fill="none"/>
+    <circle cx="-79.810" cy="-150.101" r="6" fill="#b96213"/>
+    <circle r="7" fill="#16283b"/>
+    <text x="14" y="-155" class="small muted">0°</text>
+    <text x="-212" y="-50" class="title inner">28.00°</text>
+    <path d="M-85 -70 L-32 -119" stroke="#b96213" stroke-width="2" fill="none"/>
+    <text x="-55" y="43" text-anchor="middle" class="small muted">轮胎相对车身纵向</text>
+  </g>
+  <g transform="translate(670 1220)">
+    <path d="M0 0 L0 -125 A125 125 0 0 0 -43.409 -117.220 Z" fill="#b9dcf4" fill-opacity="0.8"/>
+    <path d="M0 -125 A125 125 0 0 0 -43.409 -117.220" stroke="#247ab9" stroke-width="4" fill="none"/>
+    <path d="M0 8 V-180" class="axis"/>
+    <path d="M0 0 L-59.036 -159.420" stroke="#247ab9" stroke-width="5" fill="none"/>
+    <circle cx="-59.036" cy="-159.420" r="6" fill="#247ab9"/>
+    <circle r="7" fill="#16283b"/>
+    <text x="14" y="-155" class="small muted">0°</text>
+    <text x="-212" y="-50" class="title outer">20.32°</text>
+    <path d="M-85 -70 L-23 -123" stroke="#247ab9" stroke-width="2" fill="none"/>
+    <text x="-55" y="43" text-anchor="middle" class="small muted">轮胎相对车身纵向</text>
+  </g>
+  <g transform="translate(1040 1220)">
+    <path d="M0 0 L0 -125 A125 125 0 0 0 -121.353 -29.975 Z" fill="#f3c58e" fill-opacity="0.65"/>
+    <path d="M0 -125 A125 125 0 0 0 -121.353 -29.975" stroke="#b96213" stroke-width="4" fill="none"/>
+    <path d="M0 8 V-180" class="axis"/>
+    <path d="M0 0 L-165.040 -40.765" stroke="#b96213" stroke-width="5" fill="none"/>
+    <circle cx="-165.040" cy="-40.765" r="6" fill="#b96213"/>
+    <circle r="7" fill="#16283b"/>
+    <text x="14" y="-155" class="small muted">0°</text>
+    <text x="-212" y="-140" class="title inner">76.13°</text>
+    <path d="M-90 -133 L-76 -99" stroke="#b96213" stroke-width="2" fill="none"/>
+    <text x="-55" y="43" text-anchor="middle" class="small muted">电机输出轴相对标定零位</text>
+  </g>
+  <g transform="translate(1410 1220)">
+    <path d="M0 0 L0 -125 A125 125 0 0 0 -114.991 -49.011 Z" fill="#b9dcf4" fill-opacity="0.8"/>
+    <path d="M0 -125 A125 125 0 0 0 -114.991 -49.011" stroke="#247ab9" stroke-width="4" fill="none"/>
+    <path d="M0 8 V-180" class="axis"/>
+    <path d="M0 0 L-156.388 -66.655" stroke="#247ab9" stroke-width="5" fill="none"/>
+    <circle cx="-156.388" cy="-66.655" r="6" fill="#247ab9"/>
+    <circle r="7" fill="#16283b"/>
+    <text x="14" y="-155" class="small muted">0°</text>
+    <text x="-212" y="-140" class="title outer">66.92°</text>
+    <path d="M-90 -133 L-68 -105" stroke="#247ab9" stroke-width="2" fill="none"/>
+    <text x="-55" y="43" text-anchor="middle" class="small muted">电机输出轴相对标定零位</text>
+  </g>
+  <text x="72" y="1298" class="small muted">输出轴图统一朝上设参考零位，仅说明角度幅值；不是实物摇臂的绝对朝向，也不表示电机电气极性。</text>
+
+  <g transform="translate(0 460)">
   <rect x="40" y="886" width="1520" height="489" rx="18" class="panel"/>
-  <text x="72" y="930" class="heading">03 理论转弯几何</text>
+  <text x="72" y="930" class="heading">04 理论转弯几何</text>
   <text x="72" y="965" class="body muted">零油门满舵 28° 对应的纯滚动模型；零油门时车辆本身不行走</text>
   <!-- ICR=(120,1210), scale=330 px/m. Front wheel centres=(498.590,1008.7)/(663.590,1008.7). -->
   <path d="M83 1210 H748" class="axis"/>
@@ -161,4 +219,5 @@
   <text x="822" y="1342" class="small muted">ρᵢ / ρₒ 为前轮中心轨迹，不包含胎宽与前后悬。</text>
   <text x="50" y="1420" class="small muted">结构造型与连杆位置为实拍参考示意，非 CAD 加工图；角度 / 轴距 / 轮距依当前 chassis_config.h。</text>
   <text x="50" y="1454" class="small muted">轮胎 235 × 90 mm 由使用者提供。实际有效滚动周长和转弯外廓需另测；速度收角会增大行走时的转弯半径。</text>
+  </g>
 </svg>
