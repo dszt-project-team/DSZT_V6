@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1480" viewBox="0 0 1600 1480" role="img" aria-labelledby="title desc">
+  <title id="title">DSZT_V6_FC 前驱双转向底盘参数示意图</title>
+  <desc id="desc">俯视左转示例，车头朝上。轴距610毫米，前后轮距均500毫米，轮胎外径235毫米、宽90毫米。零油门满舵内外轮角28度和20.32度，对应转向电机输出轴角76.13度和66.92度。后轴中心转弯半径1.397米，内外前轮中心半径1.299米和1.757米。4900 ERPM、14极对时直行理论速度15.50千米每小时。28度满舵与最高车速不是同一工况。</desc>
+  <defs>
+    <style>
+      text { font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; fill: #16283b; }
+      .title { font-size: 38px; font-weight: 700; }
+      .heading { font-size: 28px; font-weight: 700; }
+      .body { font-size: 24px; }
+      .small { font-size: 21px; }
+      .muted { fill: #53657a; }
+      .inner { fill: #ae570c; }
+      .outer { fill: #1667a8; }
+      .strong { font-weight: 700; }
+      .panel { fill: #ffffff; stroke: #d7e0e9; stroke-width: 2; }
+      .axis { stroke: #8b9aac; stroke-width: 2; stroke-dasharray: 7 7; fill: none; }
+      .guide { stroke: #718297; stroke-width: 2; fill: none; }
+      .dimension { stroke: #566b80; stroke-width: 2; fill: none; marker-start: url(#dim); marker-end: url(#dim); }
+      .label-bg { paint-order: stroke; stroke: #ffffff; stroke-width: 9; stroke-linejoin: round; }
+    </style>
+    <marker id="dim" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#566b80"/></marker>
+    <marker id="forward" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0 L12 6 L0 12 Z" fill="#243a50"/></marker>
+    <g id="tyre">
+      <rect x="-25.2" y="-65.8" width="50.4" height="131.6" rx="15" fill="#233344"/>
+      <path d="M-18 -48 H18 M-18 -24 H18 M-18 0 H18 M-18 24 H18 M-18 48 H18" stroke="#53667a" stroke-width="5"/>
+      <path d="M0 -59 V59" stroke="#c5d1dc" stroke-width="2"/>
+      <circle r="5" fill="#ffffff"/>
+    </g>
+  </defs>
+  <rect width="1600" height="1480" fill="#f1f5f9"/>
+  <text x="50" y="66" class="title">DSZT_V6_FC · 前驱双转向底盘</text>
+  <text x="50" y="109" class="body muted">当前配置几何示意｜左转示例｜MAIN1 行走 · MAIN2 转向｜2026-10-08</text>
+
+  <rect x="40" y="140" width="900" height="720" rx="18" class="panel"/>
+  <text x="70" y="181" class="heading">01 结构与角度</text>
+  <text x="70" y="213" class="small muted">车头朝上；左右按站在车后向前看定义</text>
+  <!-- Axle centres are to scale: 0.56 px/mm. Body/linkage shapes are schematic. -->
+  <path d="M350 285 V238 M630 285 V238" class="guide"/>
+  <path d="M350 249 H630" class="dimension"/>
+  <text x="490" y="237" text-anchor="middle" class="body strong label-bg">前轮距 500 mm</text>
+  <path d="M490 320 V278" stroke="#243a50" stroke-width="3" marker-end="url(#forward)"/>
+  <text x="508" y="307" class="body strong">车头</text>
+
+  <!-- Rear fixed axle, yellow longitudinal rails, front electronics and detector. -->
+  <path d="M350 707 H630" stroke="#3f5368" stroke-width="19"/>
+  <rect x="411" y="410" width="45" height="321" rx="5" fill="#ebc647" stroke="#c7a020" stroke-width="2"/>
+  <rect x="524" y="410" width="45" height="321" rx="5" fill="#ebc647" stroke="#c7a020" stroke-width="2"/>
+  <circle cx="490" cy="569" r="76" fill="#eef2f6" fill-opacity="0.7" stroke="#7f8f9d" stroke-width="7"/>
+  <path d="M439 516 L541 622 M541 516 L439 622" stroke="#7f8f9d" stroke-width="5"/>
+  <text x="490" y="578" text-anchor="middle" class="small label-bg">探测盘</text>
+  <rect x="386" y="365" width="208" height="106" rx="13" fill="#293b4c"/>
+  <rect x="435" y="382" width="110" height="66" rx="8" fill="#52667b"/>
+  <text x="490" y="425" text-anchor="middle" class="body" style="fill:#ffffff">飞控 / A 板</text>
+  <path d="M350 365 H630" class="axis"/>
+  <path d="M490 475 V755" class="axis"/>
+
+  <g transform="translate(350 365) rotate(-28)"><use href="#tyre"/></g>
+  <g transform="translate(630 365) rotate(-20.320382)"><use href="#tyre"/></g>
+  <g transform="translate(350 707)"><use href="#tyre"/></g>
+  <g transform="translate(630 707)"><use href="#tyre"/></g>
+  <path d="M350 365 V272 M630 365 V272" class="axis"/>
+  <path d="M350 365 L308.22 286.42" stroke="#b96213" stroke-width="3"/>
+  <path d="M630 365 L598.75 280.55" stroke="#247ab9" stroke-width="3"/>
+  <path d="M350 300 A65 65 0 0 0 319.48 307.61" fill="none" stroke="#b96213" stroke-width="4"/>
+  <path d="M630 300 A65 65 0 0 0 607.42 304.04" fill="none" stroke="#247ab9" stroke-width="4"/>
+
+  <text x="77" y="306" class="body strong inner">左前内轮 · OID 1</text>
+  <text x="77" y="344" class="heading inner">δᵢ = 28.00°</text>
+  <path d="M265 334 H292 L314 348" stroke="#b96213" stroke-width="2" fill="none"/>
+  <text x="690" y="306" class="body strong outer">右前外轮 · OID 2</text>
+  <text x="690" y="344" class="heading outer">δₒ = 20.32°</text>
+  <path d="M692 354 H665 L649 366" stroke="#247ab9" stroke-width="2" fill="none"/>
+
+  <!-- Steering output shafts and independent front-side links, not a single servo. -->
+  <rect x="402" y="327" width="44" height="49" rx="6" fill="#78899a"/>
+  <rect x="534" y="327" width="44" height="49" rx="6" fill="#78899a"/>
+  <path d="M350 355 L375 320 L424 342 M630 355 L610 320 L556 342" fill="none" stroke="#a0adb9" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="424" cy="342" r="12" fill="#fff6e8" stroke="#b96213" stroke-width="4"/>
+  <circle cx="556" cy="342" r="12" fill="#edf7ff" stroke="#247ab9" stroke-width="4"/>
+  <path d="M424 342 L418 320 M556 342 L549 320" stroke="#233344" stroke-width="4"/>
+  <path d="M293 472 H370 L410 355" class="guide"/>
+  <text x="77" y="471" class="body strong inner">内侧转向输出轴</text>
+  <text x="77" y="508" class="heading inner">αᵢ = 76.13°</text>
+  <text x="77" y="542" class="small muted">5840 + 磁编码器</text>
+  <path d="M655 500 H603 L568 356" class="guide"/>
+  <text x="654" y="493" class="body strong outer">外侧转向输出轴</text>
+  <text x="654" y="530" class="heading outer">αₒ = 66.92°</text>
+  <text x="654" y="564" class="small muted">5840 + 磁编码器</text>
+
+  <path d="M686 365 H902 M686 707 H902" class="guide"/>
+  <path d="M890 365 V707" class="dimension"/>
+  <rect x="809" y="595" width="105" height="66" rx="8" fill="#ffffff"/>
+  <text x="861" y="620" text-anchor="middle" class="body strong">轴距 L</text>
+  <text x="861" y="650" text-anchor="middle" class="body strong">610 mm</text>
+  <circle cx="490" cy="707" r="7" fill="#196f69" stroke="#ffffff" stroke-width="2"/>
+  <text x="490" y="756" text-anchor="middle" class="body">后轴固定 · 无驱动</text>
+  <path d="M350 779 V823 M630 779 V823" class="guide"/>
+  <path d="M350 803 H630" class="dimension"/>
+  <text x="490" y="839" text-anchor="middle" class="body strong">后轮距 500 mm</text>
+  <text x="76" y="671" class="small muted">轮胎外径</text>
+  <text x="76" y="705" class="body strong">235 mm</text>
+  <text x="76" y="743" class="small muted">胎宽 90 mm</text>
+
+  <rect x="966" y="140" width="594" height="720" rx="18" class="panel"/>
+  <text x="998" y="185" class="heading">02 参数含义与速度</text>
+  <text x="998" y="230" class="body strong">轮角 ≠ 转向电机输出轴角</text>
+  <text x="998" y="267" class="body">αᵢ = δᵢ × 89.719 / 33</text>
+  <text x="998" y="303" class="body">αₒ = δₒ × 82.325 / 25</text>
+  <text x="998" y="340" class="small muted">轴角以各自直行标定零点为基准，图示为幅值。</text>
+  <text x="998" y="374" class="small muted">右转时内外侧互换；不是轮毂转过的角度。</text>
+  <path d="M998 402 H1528" stroke="#d7e0e9" stroke-width="2"/>
+  <text x="998" y="443" class="body strong">最高直行目标下的理论车速</text>
+  <text x="998" y="482" class="body">4900 ERPM ÷ 14 极对 = 350 RPM</text>
+  <text x="998" y="521" class="body">v = π × 0.235 × 350 / 60</text>
+  <rect x="997" y="543" width="532" height="85" rx="12" fill="#eaf4fb"/>
+  <text x="1263" y="598" text-anchor="middle" class="title" style="fill:#1667a8">4.31 m/s · 15.50 km/h</text>
+  <text x="998" y="666" class="small muted">按外径与纯滚动计算；非实测极速。</text>
+  <text x="998" y="700" class="small muted">负载、轮胎变形、打滑和电池状态会影响实车。</text>
+  <path d="M998 724 H1528" stroke="#d7e0e9" stroke-width="2"/>
+  <text x="998" y="764" class="body strong">28° 满舵与最高车速不是同一工况</text>
+  <text x="998" y="800" class="small">零油门内轮 28°；4900 ERPM 目标时为 19.6°。</text>
+  <text x="998" y="832" class="small muted">轴角目标保护 80°，反馈保护 82°。</text>
+
+  <rect x="40" y="886" width="1520" height="489" rx="18" class="panel"/>
+  <text x="72" y="930" class="heading">03 理论转弯几何</text>
+  <text x="72" y="965" class="body muted">零油门满舵 28° 对应的纯滚动模型；零油门时车辆本身不行走</text>
+  <!-- ICR=(120,1210), scale=330 px/m. Front wheel centres=(498.590,1008.7)/(663.590,1008.7). -->
+  <path d="M83 1210 H748" class="axis"/>
+  <path d="M498.59 1008.7 V1210 M663.59 1008.7 V1210" class="axis"/>
+  <path d="M498.59 1008.7 H663.59 M498.59 1210 H663.59" stroke="#91a3b4" stroke-width="5"/>
+  <path d="M540 1035 V1200 M623 1035 V1200" stroke="#e8c345" stroke-width="14"/>
+  <g transform="translate(498.59 1008.7) rotate(-28)"><rect x="-14.85" y="-38.775" width="29.7" height="77.55" rx="8" fill="#ae570c"/></g>
+  <g transform="translate(663.59 1008.7) rotate(-20.320382)"><rect x="-14.85" y="-38.775" width="29.7" height="77.55" rx="8" fill="#1667a8"/></g>
+  <rect x="483.74" y="1171.225" width="29.7" height="77.55" rx="8" fill="#64758a"/>
+  <rect x="648.74" y="1171.225" width="29.7" height="77.55" rx="8" fill="#64758a"/>
+  <path d="M120 1210 L498.59 1008.7" stroke="#ae570c" stroke-width="3"/>
+  <path d="M120 1210 L663.59 1008.7" stroke="#1667a8" stroke-width="3"/>
+  <text x="263" y="1051" class="body inner label-bg">ρᵢ = 1.299 m</text>
+  <text x="273" y="1127" class="body outer label-bg">ρₒ = 1.757 m</text>
+  <path d="M367 1064 L397 1063 M380 1110 L411 1102" class="guide"/>
+  <circle cx="120" cy="1210" r="9" fill="#16283b"/>
+  <text x="75" y="1170" class="body strong">转弯中心</text>
+  <circle cx="581.09" cy="1210" r="7" fill="#196f69" stroke="#ffffff" stroke-width="2"/>
+  <text x="540" y="1166" class="small strong label-bg">后轴中心</text>
+  <path d="M120 1224 V1330 M498.59 1253 V1280 M581.09 1224 V1330" class="guide"/>
+  <path d="M120 1269 H498.59" class="dimension"/>
+  <text x="309" y="1260" text-anchor="middle" class="body label-bg">r = 1.147 m</text>
+  <path d="M120 1317 H581.09" class="dimension"/>
+  <text x="350" y="1353" text-anchor="middle" class="body strong" style="fill:#196f69">R = 1.397 m</text>
+  <path d="M721 1008.7 V1210" class="dimension"/>
+  <text x="739" y="1115" class="body">L</text>
+
+  <text x="822" y="1027" class="body strong">r = L / tan(δᵢ) = 1.147 m</text>
+  <text x="822" y="1067" class="body strong" style="fill:#196f69">R = r + W / 2 = 1.397 m</text>
+  <text x="822" y="1107" class="body">δₒ = atan[L / (r + W)] = 20.32°</text>
+  <text x="822" y="1147" class="body">ρᵢ = √(L² + r²) = 1.299 m</text>
+  <text x="822" y="1187" class="body">ρₒ = √[L² + (r + W)²] = 1.757 m</text>
+  <text x="822" y="1232" class="body strong">内 / 外轮速度比 = ρᵢ / ρₒ = 0.73970</text>
+  <text x="822" y="1274" class="small muted">W 为前轮距 0.500 m。外轮比例 1，内轮减速。</text>
+  <text x="822" y="1308" class="small muted">R 是后轴中心轨迹半径，不是车身外廓半径。</text>
+  <text x="822" y="1342" class="small muted">ρᵢ / ρₒ 为前轮中心轨迹，不包含胎宽与前后悬。</text>
+  <text x="50" y="1420" class="small muted">结构造型与连杆位置为实拍参考示意，非 CAD 加工图；角度 / 轴距 / 轮距依当前 chassis_config.h。</text>
+  <text x="50" y="1454" class="small muted">轮胎 235 × 90 mm 由使用者提供。实际有效滚动周长和转弯外廓需另测；速度收角会增大行走时的转弯半径。</text>
+</svg>
