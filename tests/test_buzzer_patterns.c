@@ -31,7 +31,7 @@ int main(void)
   BSP_Buzzer_Task(90);assert(htim12.compare>0);
   BSP_Buzzer_Task(260);assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_SILENT && htim12.compare==0);
 
-  for(i=BSP_BUZZER_CUE_MODE_CHANGE;i<=BSP_BUZZER_CUE_RC_LOST;i++)
+  for(i=BSP_BUZZER_CUE_BOOT;i<=BSP_BUZZER_CUE_STEER_FAULT;i++)
   {
     pattern=BSP_Buzzer_GetPattern((BSP_BuzzerCue)i,&count,&repeat);
     assert(pattern && count>0 && count<=6);
@@ -49,22 +49,22 @@ int main(void)
     assert(test_tone_writes-before<=1); /* No catch-up loop, regardless of elapsed time. */
     assert(repeat || BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_SILENT);
   }
-  BSP_Buzzer_Stop();BSP_Buzzer_Play(BSP_BUZZER_CUE_MANUAL_READY,100);
-  BSP_Buzzer_Play(BSP_BUZZER_CUE_OID_DUAL_FAULT,110);
-  assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_OID_DUAL_FAULT);
+  BSP_Buzzer_Stop();BSP_Buzzer_Play(BSP_BUZZER_CUE_AUTO_READY,100);
+  BSP_Buzzer_Play(BSP_BUZZER_CUE_OID_FAULT,110);
+  assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_OID_FAULT);
   BSP_Buzzer_Play(BSP_BUZZER_CUE_AUTO_READY,120); /* Lower event discarded, never queued. */
-  BSP_Buzzer_Play(BSP_BUZZER_CUE_RC_LOST,130);
-  assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_RC_LOST);
+  BSP_Buzzer_Play(BSP_BUZZER_CUE_FC_FAULT,130);
+  assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_FC_FAULT);
   BSP_Buzzer_Stop();BSP_Buzzer_Task(10000);
   assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_SILENT && htim12.compare==0);
 
-  BSP_Buzzer_Play(BSP_BUZZER_CUE_RC_LOST,UINT32_MAX-40U);
+  BSP_Buzzer_Play(BSP_BUZZER_CUE_FC_FAULT,UINT32_MAX-40U);
   BSP_Buzzer_Task(48U);assert(s_buzzer.phase==0 && htim12.compare>0);
   BSP_Buzzer_Task(49U);assert(s_buzzer.phase==1 && htim12.compare==0);
   BSP_Buzzer_Task(139U);assert(s_buzzer.phase==2 && htim12.compare>0);
-  BSP_Buzzer_Task(2959U);assert(s_buzzer.phase==0 && htim12.compare>0);
-  BSP_Buzzer_Play(BSP_BUZZER_CUE_RC_LOST,3000U);
-  assert(s_buzzer.started_ms==2959U); /* Same request cannot restart the repeat pattern. */
+  BSP_Buzzer_Task(3959U);assert(s_buzzer.phase==0 && htim12.compare>0);
+  BSP_Buzzer_Play(BSP_BUZZER_CUE_FC_FAULT,4000U);
+  assert(s_buzzer.started_ms==3959U); /* Same request cannot restart the repeat pattern. */
   BSP_Buzzer_Stop();BSP_Buzzer_Play(BSP_BUZZER_CUE_BOOT,UINT32_MAX-40U);
   BSP_Buzzer_Task(219U);assert(BSP_Buzzer_GetCue()==BSP_BUZZER_CUE_SILENT);
   puts("PASS: buzzer PWM init/tone, bounded patterns/catch-up, priorities/no stale queue, stop, wrap");

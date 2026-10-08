@@ -6,9 +6,7 @@
 #include "oid_stop_guard.h"
 #include "oid_reverse_guard.h"
 #include "front_drive.h"
-#include "pwm_input.h"
 #include "robot_def.h"
-#include "tim.h"
 #include "usart.h"
 
 #include <math.h>
@@ -20,116 +18,16 @@ static FrontDrive_Handle_t s_front_drive;
 static uint32_t s_last_control_ms;
 static OidStopGuard s_stop_guard;
 static OidReverseGuard s_reverse_guard;
-static PwmInput_Handle_t *s_fc_drive_input;
-static PwmInput_Handle_t *s_fc_steer_input;
-static PwmInput_Snapshot_t s_fc_drive;
-static PwmInput_Snapshot_t s_fc_steer;
-static uint32_t s_fc_center_start_ms;
-static uint8_t s_fc_release_ready;
+static uint32_t s_rearm_center_ms;
+static uint8_t s_rearm_center_timing;
+static uint8_t s_rearm_was_required;
 
-static int16_t ChassisApp_MapAsymmetricPulse(uint16_t pulse_us,
-                                             uint16_t low_full_us,
-                                             uint16_t neutral_us,
-                                             uint16_t high_full_us,
-                                             uint16_t deadband_us)
+static void ChassisApp_RequestStop(uint32_t now_ms)
 {
-  int32_t value;
-
-  if ((pulse_us >= (uint16_t)(neutral_us - deadband_us)) &&
-      (pulse_us <= (uint16_t)(neutral_us + deadband_us)))
-  {
-    return 0;
-  }
-  if (pulse_us < neutral_us)
-  {
-    if (pulse_us <= low_full_us)
-    {
-      return -1000;
-    }
-    value = -((int32_t)((neutral_us - deadband_us) - pulse_us) * 1000) /
-            (int32_t)((neutral_us - deadband_us) - low_full_us);
-  }
-  else
-  {
-    if (pulse_us >= high_full_us)
-    {
-      return 1000;
-    }
-    value = ((int32_t)pulse_us - (int32_t)(neutral_us + deadband_us)) * 1000 /
-            (int32_t)(high_full_us - (neutral_us + deadband_us));
-  }
-  if (value < -1000)
-  {
-    value = -1000;
-  }
-  if (value > 1000)
-  {
-    value = 1000;
-  }
-  return (int16_t)value;
-}
-
-static int16_t ChassisApp_GetFcDrivePermille(void)
-{
-  return ChassisApp_MapAsymmetricPulse(
-      s_fc_drive.filtered_us,
-      CHASSIS_FC_DRIVE_REVERSE_FULL_US,
-      CHASSIS_FC_DRIVE_NEUTRAL_US,
-      CHASSIS_FC_DRIVE_FORWARD_FULL_US,
-      CHASSIS_FC_DRIVE_DEADBAND_US);
-}
-
-static int16_t ChassisApp_GetFcSteerPermille(void)
-{
-  return ChassisApp_MapAsymmetricPulse(
-      s_fc_steer.filtered_us,
-      CHASSIS_FC_STEER_LEFT_FULL_US,
-      CHASSIS_FC_STEER_NEUTRAL_US,
-      CHASSIS_FC_STEER_RIGHT_FULL_US,
-      CHASSIS_FC_STEER_DEADBAND_US);
-}
-
-static uint8_t ChassisApp_FcInputsHealthy(void)
-{
-  return (uint8_t)(((s_fc_drive.online != 0U) &&
-                    (s_fc_drive.fault == PWM_INPUT_FAULT_NONE) &&
-                    (s_fc_steer.online != 0U) &&
-                    (s_fc_steer.fault == PWM_INPUT_FAULT_NONE)) ? 1U : 0U);
-}
-
-static void ChassisApp_UpdateFcRelease(uint32_t now_ms)
-{
-  uint8_t centered;
-
-  if ((CHASSIS_FC_CONTROL_ENABLE == 0U) ||
-      (g_robot_command.mode != ROBOT_MODE_AUTO_FC) ||
-      (ChassisApp_FcInputsHealthy() == 0U))
-  {
-    s_fc_center_start_ms = 0U;
-    s_fc_release_ready = 0U;
-    return;
-  }
-  if (s_fc_release_ready != 0U)
-  {
-    return;
-  }
-
-  centered = (uint8_t)(((ChassisApp_GetFcDrivePermille() == 0) &&
-                         (ChassisApp_GetFcSteerPermille() == 0)) ? 1U : 0U);
-  if (centered == 0U)
-  {
-    s_fc_center_start_ms = 0U;
-    s_fc_release_ready = 0U;
-    return;
-  }
-  if (s_fc_center_start_ms == 0U)
-  {
-    s_fc_center_start_ms = now_ms;
-  }
-  if ((now_ms - s_fc_center_start_ms) >= CHASSIS_FC_RELEASE_CENTER_MS)
-  {
-    s_fc_release_ready = 1U;
-  }
+  OidStopGuard_Update(&s_stop_guard, 1U);
+  if (OidStopGuard_RequestDue(&s_stop_guard, now_ms) != 0U &&
+      FrontDrive_StopUrgent(&s_front_drive) == HAL_OK)
+    OidStopGuard_MarkRequest(&s_stop_guard, now_ms);
 }
 
 static void ChassisApp_CalculateTargets(int16_t steering_permille,
@@ -146,29 +44,14 @@ static void ChassisApp_CalculateTargets(int16_t steering_permille,
 
 void ChassisApp_Init(void)
 {
-  PwmInput_Config_t pwm_config;
-
   DualSteer_Init();
   memset(&s_stop_guard, 0, sizeof(s_stop_guard));
   memset(&s_reverse_guard, 0, sizeof(s_reverse_guard));
 
-  memset(&pwm_config, 0, sizeof(pwm_config));
-  pwm_config.timer = &htim3;
-  pwm_config.minimum_valid_us = CHASSIS_FC_PWM_MIN_VALID_US;
-  pwm_config.maximum_valid_us = CHASSIS_FC_PWM_MAX_VALID_US;
-  pwm_config.timeout_ms = CHASSIS_FC_PWM_TIMEOUT_MS;
-  pwm_config.transient_fault_hold_ms = CHASSIS_FC_PWM_TRANSIENT_HOLD_MS;
-  pwm_config.average_window = CHASSIS_FC_DRIVE_AVERAGE_WINDOW;
-  pwm_config.valid_samples_to_online = CHASSIS_FC_PWM_VALID_TO_ONLINE;
-  pwm_config.channel = TIM_CHANNEL_3;
-  s_fc_drive_input = PwmInput_Register(&pwm_config);
-  pwm_config.average_window = CHASSIS_FC_STEER_AVERAGE_WINDOW;
-  pwm_config.channel = TIM_CHANNEL_4;
-  s_fc_steer_input = PwmInput_Register(&pwm_config);
-  memset(&s_fc_drive, 0, sizeof(s_fc_drive));
-  memset(&s_fc_steer, 0, sizeof(s_fc_steer));
-  s_fc_drive.fault = PWM_INPUT_FAULT_NOT_READY;
-  s_fc_steer.fault = PWM_INPUT_FAULT_NOT_READY;
+  s_last_control_ms = 0U;
+  s_rearm_center_ms = 0U;
+  s_rearm_center_timing = 0U;
+  s_rearm_was_required = 0U;
 
   BSP_RS485_Init(&s_oid_bus, &huart3, 0, 0U);
   FrontDrive_Init(&s_front_drive, &s_oid_bus,
@@ -186,15 +69,36 @@ void ChassisApp_Task(uint32_t now_ms)
   int32_t right_target = 0;
   uint8_t permit_motion;
   uint8_t source_ready;
-  uint8_t rearm_centered;
+  uint8_t rearm_ready = 0U;
+  uint8_t rearm_required;
   int16_t active_steering = 0;
   int16_t active_throttle = 0;
   uint16_t active_speed_limit = CHASSIS_FC_SPEED_LIMIT_ERPM;
   uint8_t diagnostic_side;
 
-  /* Decide before servicing the bus: do not start extra reads while unlocked.
-   * An already-started transaction is allowed to finish without colliding. */
-  s_front_drive.control_read_allowed = (uint8_t)(g_robot_command.mode == ROBOT_MODE_LOCKED &&
+  source_ready = (uint8_t)(g_robot_command.source_online &&
+      g_robot_command.released && g_robot_command.gate == ROBOT_GATE_READY &&
+      (g_robot_command.mode == ROBOT_MODE_AUTO_FC ||
+       g_robot_command.mode == ROBOT_MODE_CALIBRATION));
+
+  /* 输入异常在1ms服务层先撤销待发非零目标，再服务总线，避免先发送上一轮油门。
+   * 已在途的RTU事务仍由FrontDrive正常收尾，不截断接收帧。 */
+  if (!source_ready || CHASSIS_STEER_CALIBRATION_SIDE != 0U ||
+      CHASSIS_PARAMETERS_CONFIRMED == 0U || CHASSIS_OID_OUTPUT_ENABLE == 0U ||
+      g_robot_chassis.steer_fault != 0U)
+  {
+    ChassisApp_RequestStop(now_ms);
+    g_robot_chassis.left_target_erpm = g_robot_chassis.right_target_erpm = 0;
+    g_robot_chassis.oid_requested_base_erpm = 0;
+    g_robot_chassis.motion_enabled = 0U;
+  }
+  if (!source_ready)
+    (void)DualSteer_Task(0, 0, 0U, now_ms);
+
+  /* FC无锁车档。额外只读事务仅在双轴中位、目标零且反馈新鲜低速时发起。 */
+  s_front_drive.control_read_allowed = (uint8_t)(g_robot_command.source_online &&
+      g_robot_command.centered &&
+      g_robot_chassis.left_target_erpm == 0 && g_robot_chassis.right_target_erpm == 0 &&
       s_front_drive.left.status.last_update_ms != 0U &&
       s_front_drive.right.status.last_update_ms != 0U &&
       (now_ms - s_front_drive.left.status.last_update_ms) <= CHASSIS_OID_REVERSE_STATUS_MAX_AGE_MS &&
@@ -260,26 +164,24 @@ void ChassisApp_Task(uint32_t now_ms)
   g_robot_chassis.right_online =
       FrontDrive_IsOnline(&s_front_drive, FRONT_DRIVE_SIDE_RIGHT, now_ms);
 
-  if (PwmInput_GetSnapshot(s_fc_drive_input, &s_fc_drive, now_ms) == 0U)
+  /* 心跳断档重臂需要一次新的持续双回中，不复用运行前的授权时间。 */
+  rearm_required = FrontDrive_IsSafetyRearmRequired(&s_front_drive);
+  if (!rearm_required || !s_rearm_was_required)
+    s_rearm_center_timing = 0U;
+  s_rearm_was_required = rearm_required;
+  if (rearm_required && source_ready && g_robot_command.centered)
   {
-    memset(&s_fc_drive, 0, sizeof(s_fc_drive));
-    s_fc_drive.fault = PWM_INPUT_FAULT_NOT_READY;
+    if (!s_rearm_center_timing)
+    {
+      s_rearm_center_timing = 1U;
+      s_rearm_center_ms = now_ms;
+    }
+    rearm_ready = (uint8_t)((now_ms - s_rearm_center_ms) >= CHASSIS_FC_RELEASE_CENTER_MS);
   }
-  if (PwmInput_GetSnapshot(s_fc_steer_input, &s_fc_steer, now_ms) == 0U)
+  else
   {
-    memset(&s_fc_steer, 0, sizeof(s_fc_steer));
-    s_fc_steer.fault = PWM_INPUT_FAULT_NOT_READY;
+    s_rearm_center_timing = 0U;
   }
-  ChassisApp_UpdateFcRelease(now_ms);
-  g_robot_chassis.fc_drive_raw_us = s_fc_drive.raw_us;
-  g_robot_chassis.fc_drive_filtered_us = s_fc_drive.filtered_us;
-  g_robot_chassis.fc_steer_raw_us = s_fc_steer.raw_us;
-  g_robot_chassis.fc_steer_filtered_us = s_fc_steer.filtered_us;
-  g_robot_chassis.fc_drive_online = s_fc_drive.online;
-  g_robot_chassis.fc_steer_online = s_fc_steer.online;
-  g_robot_chassis.fc_drive_fault = (uint8_t)s_fc_drive.fault;
-  g_robot_chassis.fc_steer_fault = (uint8_t)s_fc_steer.fault;
-  g_robot_chassis.fc_release_ready = s_fc_release_ready;
 
   if ((now_ms - s_last_control_ms) < CHASSIS_CONTROL_PERIOD_MS)
   {
@@ -287,43 +189,18 @@ void ChassisApp_Task(uint32_t now_ms)
   }
   s_last_control_ms = now_ms;
 
-  rearm_centered = (g_robot_command.mode == ROBOT_MODE_AUTO_FC) ?
-      (uint8_t)(((ChassisApp_FcInputsHealthy() != 0U) &&
-                 (ChassisApp_GetFcDrivePermille() == 0) &&
-                 (ChassisApp_GetFcSteerPermille() == 0)) ? 1U : 0U) :
-      g_robot_command.throttle_centered;
-  if ((FrontDrive_IsSafetyRearmRequired(&s_front_drive) != 0U) &&
-      (g_robot_command.rc_online != 0U) &&
-      (g_robot_command.failsafe == 0U) &&
-      (rearm_centered != 0U))
-  {
+  if (rearm_required != 0U && rearm_ready)
     FrontDrive_RearmSafety(&s_front_drive, now_ms);
-  }
 
-  if (g_robot_command.mode == ROBOT_MODE_MANUAL)
-  {
-    active_steering = g_robot_command.steering_permille;
-    active_throttle = g_robot_command.throttle_permille;
-    active_speed_limit = g_robot_command.speed_limit_erpm;
-    source_ready = (uint8_t)((g_robot_command.gate == ROBOT_GATE_READY) ? 1U : 0U);
-  }
-  else if (g_robot_command.mode == ROBOT_MODE_AUTO_FC)
-  {
-    active_steering = ChassisApp_GetFcSteerPermille();
-    active_throttle = ChassisApp_GetFcDrivePermille();
-    active_speed_limit = CHASSIS_FC_SPEED_LIMIT_ERPM;
-    source_ready = s_fc_release_ready;
-  }
-  else
-  {
-    source_ready = 0U;
-  }
+  active_steering = g_robot_command.steering_permille;
+  active_throttle = g_robot_command.throttle_permille;
+  active_speed_limit = g_robot_command.speed_limit_erpm;
 
   if (CHASSIS_OID_COMMISSION_MAX_ERPM != 0U &&
       active_speed_limit > CHASSIS_OID_COMMISSION_MAX_ERPM)
     active_speed_limit = CHASSIS_OID_COMMISSION_MAX_ERPM;
 
-  /* Same gain reference as V4: effective base command including the CH7 limit.
+  /* Same gain reference as V4: effective base command including the FC speed limit.
      The returned command is the separate V4-style OID differential ramp. */
   active_steering = DualSteer_Task(active_steering,
       (int16_t)(((int32_t)active_throttle * active_speed_limit) /
@@ -331,6 +208,8 @@ void ChassisApp_Task(uint32_t now_ms)
 
   permit_motion = (uint8_t)((CHASSIS_PARAMETERS_CONFIRMED != 0U) &&
                             (CHASSIS_OID_OUTPUT_ENABLE != 0U) &&
+                            (CHASSIS_STEER_CALIBRATION_SIDE == 0U) &&
+                            (g_robot_command.mode == ROBOT_MODE_AUTO_FC) &&
                             (source_ready != 0U) &&
                             (DualSteer_MotionReady() != 0U) &&
                             (FrontDrive_IsMotionReady(&s_front_drive, now_ms) != 0U));

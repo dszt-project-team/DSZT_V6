@@ -29,11 +29,14 @@ struct PwmInput_Handle
   volatile uint32_t last_invalid_ms;
   volatile uint32_t valid_pulse_count;
   volatile uint32_t invalid_pulse_count;
+  volatile uint32_t timeout_event_count;
   volatile PwmInput_Fault_t fault;
   volatile uint8_t sample_index;
   volatile uint8_t sample_count;
   volatile uint8_t valid_streak;
   volatile uint8_t waiting_for_falling_edge;
+  /* 同一段断流只计一次；与瞬时 fault 分开，避免非法脉冲覆盖诊断后重复计数。 */
+  volatile uint8_t timeout_event_active;
   uint8_t initialized;
 };
 
@@ -86,6 +89,11 @@ static void PwmInput_PublishValidPulse(PwmInput_Handle_t *handle,
   if ((handle->valid_pulse_count != 0U) &&
       ((uint32_t)(now_ms - handle->last_valid_ms) > handle->config.timeout_ms))
   {
+    /* 即使任务错过整段断流，恢复首帧仍保存事件；任务已记录则不重复计数。 */
+    if (handle->timeout_event_active == 0U)
+    {
+      handle->timeout_event_count++;
+    }
     PwmInput_ResetFilter(handle);
   }
 
@@ -111,6 +119,7 @@ static void PwmInput_PublishValidPulse(PwmInput_Handle_t *handle,
     (uint16_t)((handle->sample_sum + ((uint32_t)handle->sample_count / 2U)) /
                (uint32_t)handle->sample_count);
   handle->last_valid_ms = now_ms;
+  handle->timeout_event_active = 0U;
   handle->valid_pulse_count++;
   /* 在线预热与均值窗独立：MAIN1 可取最新值，但仍须连续有效帧确认。 */
   if (handle->valid_streak < handle->config.valid_samples_to_online)
@@ -272,8 +281,10 @@ uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
   {
     snapshot->fault = PWM_INPUT_FAULT_TIMEOUT;
     /* 仅首次进入超时复位边沿；重复轮询不能打断恢复中的新脉冲。 */
-    if (handle->fault != PWM_INPUT_FAULT_TIMEOUT)
+    if (handle->timeout_event_active == 0U)
     {
+      handle->timeout_event_count++;
+      handle->timeout_event_active = 1U;
       PwmInput_ResetFilter(handle);
       handle->waiting_for_falling_edge = 0U;
       handle->fault = PWM_INPUT_FAULT_TIMEOUT;
@@ -296,6 +307,8 @@ uint8_t PwmInput_GetSnapshot(PwmInput_Handle_t *handle,
     snapshot->fault = PWM_INPUT_FAULT_NONE;
     snapshot->online = 1U;
   }
+  /* 放在超时判定之后，在同一临界区返回本次轮询刚记录的事件。 */
+  snapshot->timeout_event_count = handle->timeout_event_count;
   if (primask == 0U)
   {
     __enable_irq();

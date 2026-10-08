@@ -180,6 +180,14 @@ static void test_gap_before_poll_and_recovery_edges(void)
   value = snapshot(input, 100U, 100U);
   check(!value.online && value.fault == PWM_INPUT_FAULT_WARMUP && value.filtered_us == 1000U,
         "first frame after an unpolled gap discards old average and online streak");
+  check(value.timeout_event_count == 1U,
+        "ISR records an outage that the task never observed");
+  pulse(TIM_CHANNEL_1, 1000U, 110U);
+  pulse(TIM_CHANNEL_1, 1000U, 120U);
+  pulse(TIM_CHANNEL_1, 1000U, 130U);
+  value = snapshot(input, 130U, 130U);
+  check(value.online && value.timeout_event_count == 1U,
+        "four good recovery frames cannot erase the recorded outage");
 
   reset_inputs();
   input = register_input(1U, 4U, TIM_CHANNEL_1);
@@ -187,6 +195,8 @@ static void test_gap_before_poll_and_recovery_edges(void)
   value = snapshot(input, 71U, 71U);
   check(!value.online && value.fault == PWM_INPUT_FAULT_TIMEOUT,
         "31-ms silence enters timeout");
+  check(value.timeout_event_count == 1U,
+        "first timeout snapshot includes the new event immediately");
   edge(TIM_CHANNEL_1, 1000U, 80U);
   (void)snapshot(input, 81U, 81U);
   check(polarity[0] == TIM_INPUTCHANNELPOLARITY_FALLING,
@@ -195,10 +205,74 @@ static void test_gap_before_poll_and_recovery_edges(void)
   value = snapshot(input, 82U, 82U);
   check(value.valid_pulse_count == 5U && value.fault == PWM_INPUT_FAULT_WARMUP,
         "the recovery falling edge produces the first new warmup sample");
+  check(value.timeout_event_count == 1U,
+        "ISR recovery does not double-count a task-observed outage");
   pulse(TIM_CHANNEL_1, 1502U, 92U);
   pulse(TIM_CHANNEL_1, 1502U, 102U);
   pulse(TIM_CHANNEL_1, 1502U, 112U);
   check(snapshot(input, 112U, 112U).online, "timeout recovery becomes online after four new samples");
+}
+
+static void test_timeout_event_dedup_and_persistence(void)
+{
+  PwmInput_Handle_t *input;
+  PwmInput_Snapshot_t value;
+  unsigned index;
+  reset_inputs();
+  input = register_input(1U, 4U, TIM_CHANNEL_1);
+  value = snapshot(input, 100U, 100U);
+  check(value.fault == PWM_INPUT_FAULT_NOT_READY && value.timeout_event_count == 0U,
+        "never-seen input stays not-ready without invented timeout events");
+  warm_four(TIM_CHANNEL_1, 1502U, 140U);
+  value = snapshot(input, 170U, 170U);
+  check(value.online && value.timeout_event_count == 0U,
+        "exactly the configured timeout interval is still healthy");
+  for (index = 171U; index <= 180U; index++)
+    value = snapshot(input, index, index);
+  check(value.timeout_event_count == 1U,
+        "repeated timeout polling counts one continuous outage only");
+  pulse(TIM_CHANNEL_1, 700U, 182U);
+  value = snapshot(input, 183U, 183U);
+  check(value.timeout_event_count == 1U && value.invalid_pulse_count == 1U,
+        "invalid pulse during outage cannot re-arm its timeout counter");
+  warm_four(TIM_CHANNEL_1, 1502U, 222U);
+  value = snapshot(input, 222U, 222U);
+  check(value.online && value.timeout_event_count == 1U,
+        "task-observed outage remains single after invalid and good recovery frames");
+  value = snapshot(input, 253U, 253U);
+  check(value.timeout_event_count == 2U && value.fault == PWM_INPUT_FAULT_TIMEOUT,
+        "a later independent outage increments the cumulative counter");
+
+  reset_inputs();
+  input = register_input(1U, 4U, TIM_CHANNEL_1);
+  warm_four(TIM_CHANNEL_1, 1502U, 40U);
+  /* The task is absent for the entire outage and four-frame recovery. */
+  warm_four(TIM_CHANNEL_1, 1770U, 130U);
+  value = snapshot(input, 130U, 130U);
+  check(value.online && value.timeout_event_count == 1U && value.filtered_us == 1770U,
+        "late task sees saved timeout even when the input is already healthy again");
+
+  reset_inputs();
+  input = register_input(1U, 4U, TIM_CHANNEL_1);
+  warm_four(TIM_CHANNEL_1, 1502U, UINT32_MAX - 10U);
+  value = snapshot(input, 19U, 19U);
+  check(value.online && value.timeout_event_count == 0U,
+        "tick rollover itself does not fabricate a timeout event");
+  value = snapshot(input, 20U, 20U);
+  check(value.fault == PWM_INPUT_FAULT_TIMEOUT && value.timeout_event_count == 1U,
+        "first true post-rollover timeout is counted once");
+  warm_four(TIM_CHANNEL_1, 1502U, 60U);
+  value = snapshot(input, 60U, 60U);
+  check(value.online && value.timeout_event_count == 1U,
+        "post-rollover recovery does not double-count the task-observed event");
+
+  reset_inputs();
+  input = register_input(1U, 4U, TIM_CHANNEL_1);
+  warm_four(TIM_CHANNEL_1, 1502U, UINT32_MAX - 10U);
+  warm_four(TIM_CHANNEL_1, 1502U, 60U);
+  value = snapshot(input, 60U, 60U);
+  check(value.online && value.timeout_event_count == 1U,
+        "ISR-only post-rollover recovery preserves an otherwise hidden timeout");
 }
 
 static void test_clock_capture_rollover_and_snapshot(void)
@@ -267,6 +341,7 @@ int main(void)
   test_drive_latest_and_steer_average();
   test_range_and_rewarm();
   test_gap_before_poll_and_recovery_edges();
+  test_timeout_event_dedup_and_persistence();
   test_clock_capture_rollover_and_snapshot();
   test_configuration_and_long_warmup();
   printf("RESULT: %u/%u checks passed; %u failure(s)\n", checks - failures, checks, failures);

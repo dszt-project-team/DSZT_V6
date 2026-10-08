@@ -111,9 +111,6 @@ static WS2812Strip_Color_t LightingApp_BaseColor(VehicleStatus status, uint32_t 
   uint32_t level;
   switch (status)
   {
-    case VEHICLE_STATUS_RC_LOST:
-      color.r = (LightingApp_DoublePulse(elapsed_ms) != 0U) ? 32U : 0U;
-      break;
     case VEHICLE_STATUS_STEER_FAULT:
       if (LightingApp_DoublePulse(elapsed_ms) != 0U) { color.r = 32U; color.b = 20U; }
       break;
@@ -126,10 +123,6 @@ static WS2812Strip_Color_t LightingApp_BaseColor(VehicleStatus status, uint32_t 
     case VEHICLE_STATUS_CONFIG_HOLD:
       color.r = 12U; color.b = 24U;
       break;
-    case VEHICLE_STATUS_STARTUP_WAIT:
-      if (LightingApp_DoublePulse(elapsed_ms) != 0U) { color.r = 20U; color.g = 8U; }
-      break;
-    case VEHICLE_STATUS_MODE_WAIT:
     case VEHICLE_STATUS_RELEASE_WAIT:
       phase = elapsed_ms % LIGHTING_APP_WAIT_CYCLE_MS;
       if (phase > (LIGHTING_APP_WAIT_CYCLE_MS / 2U)) phase = LIGHTING_APP_WAIT_CYCLE_MS - phase;
@@ -139,15 +132,11 @@ static WS2812Strip_Color_t LightingApp_BaseColor(VehicleStatus status, uint32_t 
     case VEHICLE_STATUS_CALIBRATION:
       color.r = 6U; color.b = 12U;
       break;
-    case VEHICLE_STATUS_MANUAL_READY:
-      color.g = 12U; color.b = 8U;
-      break;
     case VEHICLE_STATUS_AUTO_READY:
       color.g = 3U; color.b = 16U;
       break;
-    case VEHICLE_STATUS_LOCKED:
     default:
-      color.r = 10U; color.g = 4U;
+      color.r = 12U; color.b = 24U;
       break;
   }
   color.r = LightingApp_Limit(color.r);
@@ -158,7 +147,7 @@ static WS2812Strip_Color_t LightingApp_BaseColor(VehicleStatus status, uint32_t 
 
 static uint8_t LightingApp_IsReady(VehicleStatus status)
 {
-  return ((status == VEHICLE_STATUS_MANUAL_READY) || (status == VEHICLE_STATUS_AUTO_READY)) ? 1U : 0U;
+  return (status == VEHICLE_STATUS_AUTO_READY) ? 1U : 0U;
 }
 
 /* 只显示最终目标的方向，不把指令动画当作编码器实测速率。64 位求和避免诊断异常值溢出。 */

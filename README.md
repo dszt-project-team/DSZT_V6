@@ -1,58 +1,32 @@
-# DSZT_V6
+# DSZT_V6_FC
 
-基于 RoboMaster A 型开发板（STM32F427IIH6）的四轮金属探测车控制固件。前轴双 OID 轮毂驱动、双 5840 转向与双 MT6826S 反馈，后轴固定从动。
+基于 DSZT_V6 的飞控专用 A 板固件：四轮底盘，前轮双 OID 行走、双 5840 转向及 MT6826S 位置闭环。MAIN1 是唯一行走输入，MAIN2 是唯一转向输入；不使用 MC7、SBUS、CH5 或 CH7。
 
-转向参数基线：`v6-28deg-baseline-20260926`。当前版本包含SBUS接收保护和灯光/蜂鸣提示更新，已由车主完成下地测试并确认状态良好；28°转向参数与双侧零点不变。轴距580 mm仅为文档对比，固件保持610 mm。
+本版本位于 `dszt-project-team/DSZT_V6` 仓库的 **`codex/dszt-v6-fc`** 独立分支；`main` 保留 MC7 版 V6，不互相替换。FC 分支保留本版本的控制与接线说明，原 V6 厂商手册及硬件附件仍在 `main` 的 `Doc/` 中。
 
-- STM32 HAL、FreeRTOS / CMSIS-RTOS v1、MDK-ARM / ARMCC。
-- MC7/SBUS 手动控制；飞控 MAIN1 行走、MAIN2 转向。
-- 双转向位置闭环、前轴阿克曼差速、OID 心跳与安全恢复。
-- 双 WS2812 显示安全状态及前后行走/左右转向指令，蜂鸣器提供简短就绪与故障音型；UART7 单源只读诊断。
-- 金属探测 UART8、USART2、USART6 仅预留接口；探测盘协议尚未实现。IMU 业务关闭，无 A22、RK3566 遥测、前后定义切换及外八控制。
+## 使用边界
 
-| 当前参数 | 配置 |
+- 上电进入飞控控制流程，但不是上电立即执行非零指令：两路 PWM 健康、完成预热及连续双回中后才释放。
+- 任一路输入异常时请求双 OID 零速、转向停机刹车；恢复后重新双回中。零速请求不等于机械瞬时停止。
+- 仅靠 MAIN1/MAIN2 无法识别飞控是否解锁，也无法识别持续重复的合法非零错误目标。飞控未解锁或失控时必须输出中位或停止脉冲；独立物理动力切断不能省略。
+- 当前默认正常双转向闭环。单轮开环为编译期维护模式，使用 MAIN2 点动，禁止行走。
+
+## 工程与说明
+
+| 项目 | 内容 |
 |---|---|
-| 轴距 / 前后轮距 | 610 / 500、500 mm |
-| 左 / 右软件零点 | 3189 / 3073 |
-| 零油门满舵内 / 外轮目标 | 28° / 20.32° |
-| 输出轴目标 / 反馈保护 | 80° / 82° |
-| 左 / 右 OID ID | 1 / 2；方向由驱动器适配，MCU系数+1/+1 |
-| OID 最大速度 / 加减速度 | 4900 ERPM / 4900 ERPM/s |
-| 手动速度上限 | CH7选择100～4900 ERPM，无额外限速 |
-| 转向模式 | 双闭环；单轮开环关闭 |
-| 正反换向 | 不等待双轮低速反馈；由OID内部速度斜坡执行 |
-| 自动行走输入 | MAIN1最新有效PWM直接映射；MAIN2保持8点均值 |
-| 停车维护 | 100 ms双零速重发；不使用停车永久锁存 |
+| MCU / 工具链 | STM32F427IIHx / Keil MDK ARMCC 5 |
+| 工程 / 目标 | [MDK-ARM/DSZT_V6_FC.uvprojx](MDK-ARM/DSZT_V6_FC.uvprojx) / `DSZT_V6_FC` |
+| 外设配置 | [DSZT_V6_FC.ioc](DSZT_V6_FC.ioc)，HSE 12 MHz、SYSCLK 168 MHz、HAL TIM6、RTOS SysTick |
+| 控制与诊断手册 | [项目 Wiki](Doc/DSZT_V6_FC_Wiki.md) |
+| 接线 | [A 板接线表](Doc/DSZT_V6_FC_接线表.md) |
+| 功能边界与移植方案 | [飞控专用方案](Doc/DSZT_V6_FC_功能边界.md) |
+| 参数入口 | [底盘配置](application/chassis/chassis_config.h)、[命令配置](application/command/command_config.h)、[诊断配置](application/debug/debug_config.h) |
+| 主机回归 | [测试说明](tests/README.md)；不连接硬件 |
+| 第三方说明 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
 
-## 文档与工程
+直接用 MDK 打开工程并 Rebuild。产物为 `MDK-ARM/DSZT_V6_FC/DSZT_V6_FC.axf` 和 `.hex`。重新生成 CubeMX 后，应核对自定义工程分组、相对路径及 `main.c` 的 `RobotInit()`、`freertos.c` 的 `RobotTask()` 用户区钩子；不得把另一个 DSZT 工程的源文件路径编入本工程。
 
-- [项目 Wiki](Doc/DSZT_V6_项目总Wiki.md)：接线、控制链路、架构调度、关键时序、安全逻辑与诊断。
-- [A 板接线手册](Doc/DSZT_V6_接线手册/DSZT_V6_A板接线手册.md)：详细针脚、供电和信号注意事项。
-- [双转向与前驱差速参数](Doc/阿克曼参数/DSZT_V6_前驱转向差速标定.md)：角度映射、阿克曼公式及结构调整参考。
-- [MDK 工程](MDK-ARM/DSZT_V6.uvprojx)：目标 `DSZT_V6`，产物位于 `MDK-ARM/DSZT_V6/`。
-- [CubeMX 配置](DSZT_V6.ioc)、[主机自检](tests/README.md)。
+`./tools/check_project.ps1` 可只读检查工程文件/包含路径、SBUS 外设移除及本地文档链接；应用回归运行 `./tests/run_host_tests.ps1`。
 
-UART7使用115200 / 8N1，默认每100 ms输出OID状态；支持 `DBG GENERIC/OID/SBUS/MT6826S/FC/OFF` 和 `DBG?`，命令以换行结束，只改变诊断视图。
-
-上电先CH5锁车、CH1/CH3回中。参数开关不绕过遥控、编码器、OID健康和回中释放；四台电机使用独立动力供电并保持信号共地。软件角度与停车保护不替代机械止挡和断动力措施。
-
-## 构建与维护
-
-1. 使用 Windows + Keil MDK，安装 ARMCC 5.06 update 7（build 960）及 `Keil.STM32F4xx_DFP 2.15.0`。
-2. 打开 `MDK-ARM/DSZT_V6.uvprojx`，选择 `DSZT_V6` 目标，执行 Rebuild。工程使用相对路径，HAL、CMSIS、FreeRTOS 源码已随仓库保留。
-3. 生成 `MDK-ARM/DSZT_V6/DSZT_V6.axf` 和 `.hex`。编译与下载是独立操作；主机自检方法见 [tests/README.md](tests/README.md)。
-
-当前 CubeMX 配置为 6.18.1 / STM32Cube F4 1.28.3。重新生成前备份工程，保留 USER CODE、自定义文件和 USART1 IDLE 中断清除逻辑。主要可调宏位于 `application/*/*_config.h`，均附中文作用说明和调整约束。
-
-本仓库保存固件、工程、正式文档、测试源码及相关硬件参考资料；不上传构建产物、本机串口日志、IDE个人缓存和旧车体模型。
-
-## 来源与使用边界
-
-应用分层参考[跃鹿电控通用嵌入式框架](https://github.com/tangguZZZ/basic_framework)。第三方库和硬件资料保留各自版权及许可说明，见 [第三方说明](THIRD_PARTY_NOTICES.md)。仓库未设置覆盖全部项目文件的统一开源许可证。
-
-## 验证状态与已知限制
-
-- `field-baseline-20260926` 保存外场控制基线。后续经车主多次现场测试，原偶发行走失效未再发生，已获车主验收；此验收不涵盖之后新增功能。
-- 当前定版移除停车永久锁存、MAIN1使用最新有效值，包含RS485/SBUS/编码器/PWM输入时序修复和锁车低速下的OID异常模式清零重臂；零点3189/3073、28°内轮目标、80°/82°轴角保护固定，差速实时换算。
-- 当前版本25项主机回归通过，MDK全量编译0错误/0警告，已烧录校验并检查UART7。SBUS有界丢帧容忍、错误恢复与原因记录，以及灯光/蜂鸣提示已随整车完成车主下地测试，状态良好；已确认的运动参数不变。主动关闭遥控器测试已观察到接收机failsafe、保护门控和后续恢复，不代表所有干扰环境和故障工况均已覆盖。
-- 原偶发“转向正常、行走失效、重启恢复”的精确根因不能由未再复现反向证明。当前恢复边界、保留的安全条件及日志采集方法见[行走故障诊断](Doc/DSZT_V6_行走故障诊断.md)。飞控自动全部工况、完整失联故障注入矩阵和长期可靠性不等同于已完成验收。
+本项目继承 V6 的机械、编码器零点和 OID 参数，独立维护飞控专用控制链。2026-10-08，使用者确认 DSZT_V6_FC 已完成多次落地测试，当前功能效果满足使用要求。故障注入和极端工况不因日常功能通过而视为全部验证，安全边界见 Wiki；原 DSZT_V6 保持独立。

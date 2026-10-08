@@ -28,15 +28,9 @@ static BSP_BuzzerContext s_buzzer;
 /* 音型仅用于简洁状态辨识；频率为1500～3300 Hz范围内的固定值。 */
 static const BSP_BuzzerStep s_boot[] =
   {{1800U,60U},{0U,30U},{2400U,60U},{0U,30U},{3000U,80U}};
-static const BSP_BuzzerStep s_connected[] =
-  {{2200U,55U},{0U,45U},{2700U,55U}};
-static const BSP_BuzzerStep s_manual[] =
-  {{2200U,60U},{0U,40U},{3000U,80U}};
 static const BSP_BuzzerStep s_auto[] =
   {{2200U,50U},{0U,30U},{2700U,50U},{0U,30U},{3100U,70U}};
-static const BSP_BuzzerStep s_locked[] =
-  {{2800U,60U},{0U,40U},{1800U,80U}};
-static const BSP_BuzzerStep s_startup_wait[] =
+static const BSP_BuzzerStep s_release_wait[] =
   {{1800U,55U},{0U,45U},{1800U,55U},{0U,4845U}};
 static const BSP_BuzzerStep s_oid_fault[] =
   {{1700U,120U},{0U,3880U}};
@@ -44,27 +38,16 @@ static const BSP_BuzzerStep s_fc_fault[] =
   {{2600U,90U},{0U,90U},{2600U,90U},{0U,3730U}};
 static const BSP_BuzzerStep s_steer_fault[] =
   {{2000U,90U},{0U,90U},{2000U,90U},{0U,90U},{2000U,90U},{0U,3550U}};
-static const BSP_BuzzerStep s_rc_lost[] =
-  {{1800U,90U},{0U,90U},{2400U,90U},{0U,2730U}};
 
 static uint8_t BSP_Buzzer_Priority(BSP_BuzzerCue cue)
 {
   switch (cue)
   {
-    case BSP_BUZZER_CUE_RC_LOST: return 100U;
     case BSP_BUZZER_CUE_STEER_FAULT: return 90U;
-    case BSP_BUZZER_CUE_OID_LEFT_FAULT:
-    case BSP_BUZZER_CUE_OID_RIGHT_FAULT:
-    case BSP_BUZZER_CUE_OID_DUAL_FAULT: return 80U;
-    case BSP_BUZZER_CUE_FC_MAIN1_TIMEOUT:
-    case BSP_BUZZER_CUE_FC_MAIN2_TIMEOUT:
-    case BSP_BUZZER_CUE_FC_DUAL_TIMEOUT: return 70U;
-    case BSP_BUZZER_CUE_STARTUP_WAIT: return 60U;
-    case BSP_BUZZER_CUE_BRAKE: return 40U;
-    case BSP_BUZZER_CUE_MANUAL_READY:
-    case BSP_BUZZER_CUE_AUTO_READY:
-    case BSP_BUZZER_CUE_MODE_CHANGE: return 30U;
-    case BSP_BUZZER_CUE_RC_CONNECTED: return 20U;
+    case BSP_BUZZER_CUE_FC_FAULT: return 100U;
+    case BSP_BUZZER_CUE_OID_FAULT: return 80U;
+    case BSP_BUZZER_CUE_RELEASE_WAIT: return 60U;
+    case BSP_BUZZER_CUE_AUTO_READY: return 30U;
     case BSP_BUZZER_CUE_BOOT: return 10U;
     default: return 0U;
   }
@@ -104,20 +87,11 @@ static const BSP_BuzzerStep *BSP_Buzzer_GetPattern(BSP_BuzzerCue cue,
   switch (cue)
   {
     case BSP_BUZZER_CUE_BOOT: *count=5U; return s_boot;
-    case BSP_BUZZER_CUE_RC_CONNECTED: *count=3U; return s_connected;
-    case BSP_BUZZER_CUE_MODE_CHANGE:
-    case BSP_BUZZER_CUE_MANUAL_READY: *count=3U; return s_manual;
     case BSP_BUZZER_CUE_AUTO_READY: *count=5U; return s_auto;
-    case BSP_BUZZER_CUE_BRAKE: *count=3U; return s_locked;
-    case BSP_BUZZER_CUE_STARTUP_WAIT: *count=4U; *repeating=1U; return s_startup_wait;
-    case BSP_BUZZER_CUE_OID_LEFT_FAULT:
-    case BSP_BUZZER_CUE_OID_RIGHT_FAULT:
-    case BSP_BUZZER_CUE_OID_DUAL_FAULT: *count=2U; *repeating=1U; return s_oid_fault;
-    case BSP_BUZZER_CUE_FC_MAIN1_TIMEOUT:
-    case BSP_BUZZER_CUE_FC_MAIN2_TIMEOUT:
-    case BSP_BUZZER_CUE_FC_DUAL_TIMEOUT: *count=4U; *repeating=1U; return s_fc_fault;
+    case BSP_BUZZER_CUE_RELEASE_WAIT: *count=4U; *repeating=1U; return s_release_wait;
+    case BSP_BUZZER_CUE_OID_FAULT: *count=2U; *repeating=1U; return s_oid_fault;
+    case BSP_BUZZER_CUE_FC_FAULT: *count=4U; *repeating=1U; return s_fc_fault;
     case BSP_BUZZER_CUE_STEER_FAULT: *count=6U; *repeating=1U; return s_steer_fault;
-    case BSP_BUZZER_CUE_RC_LOST: *count=4U; *repeating=1U; return s_rc_lost;
     default: return NULL;
   }
 }
@@ -141,7 +115,7 @@ void BSP_Buzzer_Play(BSP_BuzzerCue cue, uint32_t now_ms)
   uint8_t count, repeating, i;
   uint32_t period_ms = 0U;
   if (s_buzzer.initialized == 0U || cue == BSP_BUZZER_CUE_SILENT) return;
-  /* 不保留待播队列：过时的解锁音不能在故障恢复后误播。 */
+  /* 不保留待播队列：过时的就绪音不能在故障恢复后误播。 */
   if (BSP_Buzzer_Priority(cue) < BSP_Buzzer_Priority(s_buzzer.cue)) return;
   if (cue == s_buzzer.cue) return;
   pattern = BSP_Buzzer_GetPattern(cue, &count, &repeating);

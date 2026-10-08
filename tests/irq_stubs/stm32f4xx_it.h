@@ -1,1 +1,0 @@
-/* The source under test defines the interrupt functions directly. */

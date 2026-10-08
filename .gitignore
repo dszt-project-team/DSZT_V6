@@ -1,34 +1,28 @@
-# 本机缓存、诊断记录与临时文件（仅不入库，不删除本地资料）
-/.em_skill.json
-/.mxproject
-/logs/
-/tmp/
+# Local build products and machine-specific IDE state; this file does not initialize Git.
+logs/
+.em_skill.json
+.mxproject
+/tools/cubemx_generate.txt
 **/.vscode/
-*.uvguix.*
-*.log
-*.log.lock
-*.bak
 __pycache__/
 *.pyc
-
-# MDK 构建输出；保留工程、启动文件、RTE 与共享调试配置
-/MDK-ARM/DSZT_V6/
+*.log
+*.lnp
+*.dep
+/tests/*.exe
+tests/.build/
+MDK-ARM/DSZT_V6_FC/
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+*.uvguix.*
+*.uvgui.*
+*.uvoptx
 *.lst
-*.map
+*.bak
 *.axf
 *.hex
+*.map
+*.build_log.htm
 *.o
 *.d
 *.crf
-*.lnp
-*.dep
-
-# 主机测试产物与旧验证记录
-/tests/*.exe
-/tests/.build/
-/tests/validation_*.md
-
-# 非当前软件交付物
-/Doc/车体模型文件/
-/Doc/OID-RS485-500W Modbus RTU_单驱_电调/RS485_Modbus_demo/
-/Doc/OID-RS485-500W Modbus RTU_单驱_电调/OID_RS485_Modbus_demo.zip

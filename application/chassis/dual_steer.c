@@ -65,6 +65,12 @@ void DualSteer_Geometry(int16_t command, float *left_deg, float *right_deg,
 void DualSteer_Init(void)
 {
   unsigned i;
+  /* 只有控制板初始化清除转向硬故障；飞控输入短暂丢失不会代替硬故障复位。 */
+  s_released = s_center_timing = s_fault = 0U;
+  s_direction_stage = s_pending_reverse = s_slew_valid = 0U;
+  s_center_ms = s_direction_ms = s_slew_ms = 0U;
+  s_oid_command = s_target[0] = s_target[1] = 0.0f;
+  s_previous_mode = 0U;
   if (!(CHASSIS_ACKERMANN_SPEED_GAIN_MIN > 0.0f && CHASSIS_ACKERMANN_SPEED_GAIN_MIN <= 1.0f) ||
       !(CHASSIS_ACKERMANN_SPEED_GAIN_FULL_COMMAND > 0.0f) ||
       !(CHASSIS_ACKERMANN_COMMAND_DEADBAND >= 0.0f && CHASSIS_ACKERMANN_COMMAND_DEADBAND < 1.0f) ||
@@ -206,16 +212,26 @@ int16_t DualSteer_Task(int16_t command, int16_t drive_command_permille,
     healthy = s_feedback[(CHASSIS_STEER_CALIBRATION_SIDE == 2U) ? 1U : 0U].healthy;
   else
     healthy = (uint8_t)(s_feedback[0].healthy && s_feedback[1].healthy);
-  if (CHASSIS_STEER_CALIBRATION_SIDE != 0U && g_robot_command.mode != ROBOT_MODE_MANUAL)
+  if (CHASSIS_STEER_CALIBRATION_SIDE != 0U && g_robot_command.mode != ROBOT_MODE_CALIBRATION)
     source_ready = 0U;
-  if (g_robot_command.rc_online == 0U || g_robot_command.failsafe != 0U)
+  if (CHASSIS_STEER_CALIBRATION_SIDE == 0U && g_robot_command.mode != ROBOT_MODE_AUTO_FC)
+    source_ready = 0U;
+  if (g_robot_command.source_online == 0U || g_robot_command.released == 0U ||
+      g_robot_command.gate != ROBOT_GATE_READY)
     source_ready = 0U;
   if (source_ready == 0U || healthy == 0U)
   {
     if (CHASSIS_STEER_CALIBRATION_SIDE == 0U && s_released && !healthy)
       s_fault = 1U;
-    /* Explicit locked mode is required to clear a closed-loop fault latch. */
-    if (g_robot_command.mode == ROBOT_MODE_LOCKED) s_fault = 0U;
+    /* FC没有CH5锁车。编码器运行中失效、角度越界或内环硬故障保持到板重启。
+     * 单纯输入异常只撤销释放；输入恢复后必须重新双回中才允许再次动作。 */
+    s_released = s_center_timing = 0U;
+    DualSteer_Stop();
+    DualSteer_Publish();
+    return 0;
+  }
+  if (s_fault != 0U)
+  {
     s_released = s_center_timing = 0U;
     DualSteer_Stop();
     DualSteer_Publish();
@@ -223,8 +239,7 @@ int16_t DualSteer_Task(int16_t command, int16_t drive_command_permille,
   }
   if (s_released == 0U)
   {
-    if (command == 0 && (g_robot_command.mode == ROBOT_MODE_AUTO_FC ||
-                        g_robot_command.throttle_centered != 0U))
+    if (command == 0 && g_robot_command.centered != 0U)
     {
       if (s_center_timing == 0U) { s_center_ms = now_ms; s_center_timing = 1U; }
       if ((now_ms - s_center_ms) >= CHASSIS_STEER_RELEASE_CENTER_MS) s_released = 1U;

@@ -69,7 +69,7 @@ typedef struct
   uint32_t last_control_read_ms;
   uint8_t control_read_enabled; /* Readonly diagnostics, opt-in by application. */
   uint8_t control_read_side;
-  uint8_t control_read_allowed; /* Application grants only while locked/stopped. */
+  uint8_t control_read_allowed; /* Application grants only with centered FC inputs, zero targets and fresh low-speed feedback. */
   uint32_t left_heartbeat_max_gap_ms;
   uint32_t right_heartbeat_max_gap_ms;
   uint8_t heartbeat_sent_mask;

@@ -5,18 +5,16 @@
 
 typedef enum
 {
-  ROBOT_MODE_LOCKED = 0,
-  ROBOT_MODE_MANUAL = 1,
-  ROBOT_MODE_AUTO_FC = 2
+  ROBOT_MODE_AUTO_FC = 2,       /* 上电默认飞控闭环；仍需输入健康且双轴回中。 */
+  ROBOT_MODE_CALIBRATION = 3    /* 编译选择的单轮开环维护，禁止 OID 行走。 */
 } RobotMode;
 
 typedef enum
 {
   ROBOT_GATE_READY = 0,
-  ROBOT_GATE_RC_LOST,
-  ROBOT_GATE_STARTUP_LOCK_REQUIRED,
-  ROBOT_GATE_MODE_CONFIRMING,
-  ROBOT_GATE_THROTTLE_CENTERING
+  ROBOT_GATE_FC_INPUT_INVALID,
+  ROBOT_GATE_FC_CENTERING,
+  ROBOT_GATE_CAL_DRIVE_NOT_CENTERED
 } RobotGate;
 
 typedef struct
@@ -26,13 +24,10 @@ typedef struct
   uint16_t speed_limit_erpm;
   uint8_t mode;
   uint8_t gate;
-  uint8_t rc_online;
-  uint8_t failsafe;
-  uint8_t throttle_centered;
-  uint32_t frame_count;
-  uint32_t rc_error_count;
-  uint16_t rc_pulse_us[16]; /* Last snapshot; meaningful only when rc_online && !failsafe. */
-  uint16_t steering_filtered_us;
+  uint8_t source_online;       /* MAIN1/2 均健康且未观察到新的坏脉冲/超时事件。 */
+  uint8_t released;            /* 双路健康、原始/滤波双回中 200 ms 后的输入授权。 */
+  uint8_t centered;            /* 当前两路原始及滤波脉宽均处于各自死区。 */
+  uint32_t fault_event_count;  /* 本次上电观察到的输入故障事件累计次数。 */
 } RobotCommand;
 
 typedef struct

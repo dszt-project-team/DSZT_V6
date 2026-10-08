@@ -1,400 +1,211 @@
 #include "command_app.h"
 #include "command_config.h"
 #include "chassis_config.h"
-
 #include "robot_def.h"
-#include "sbus_rc.h"
-#include "usart.h"
+#include "tim.h"
 
 #include <string.h>
 
-#define COMMAND_MODE_INVALID               0xFFU
-
-static SBusRc_Handle_t s_rc;
-static uint32_t s_last_good_frame_count;
-static uint32_t s_last_lost_count;
-static uint32_t s_last_guard_event_count;
-static CommandRcDiagnostics s_rc_diagnostics;
+static PwmInput_Handle_t *s_drive_input;
+static PwmInput_Handle_t *s_steer_input;
+static CommandFcDiagnostics s_diagnostics;
+static uint32_t s_invalid_count[2];
+static uint32_t s_timeout_count[2];
+static uint32_t s_center_pair_count[2];
 static uint32_t s_center_start_ms;
-static uint32_t s_loss_start_ms;
-static uint8_t s_startup_lock_seen;
-static uint8_t s_stable_mode;
-static uint8_t s_candidate_mode;
-static uint8_t s_candidate_frames;
-static uint8_t s_unconfirmed_frames;
-static uint8_t s_release_ready;
-static uint8_t s_loss_active;
-static uint16_t s_steer_samples[COMMAND_STEER_FILTER_WINDOW];
-static uint32_t s_steer_sum, s_steer_filter_ms;
-static uint8_t s_steer_index, s_steer_filter_valid;
+static uint8_t s_center_timing;
 
-static uint16_t CommandApp_FilterSteering(uint16_t pulse, uint32_t now_ms)
+static int16_t CommandApp_MapPulse(uint16_t pulse, uint16_t low,
+    uint16_t neutral, uint16_t high, uint16_t deadband)
 {
-  unsigned i;
-  if (COMMAND_STEER_FILTER_ENABLE == 0U) return pulse;
-  if (s_steer_filter_valid == 0U)
+  if (pulse < (uint16_t)(neutral - deadband))
   {
-    for (i = 0U; i < COMMAND_STEER_FILTER_WINDOW; i++) s_steer_samples[i] = pulse;
-    s_steer_sum = (uint32_t)pulse * COMMAND_STEER_FILTER_WINDOW;
-    s_steer_index = 0U;
-    s_steer_filter_ms = now_ms;
-    s_steer_filter_valid = 1U;
+    if (pulse <= low) return -1000;
+    return (int16_t)(-((int32_t)(neutral - deadband - pulse) * 1000) /
+                     (int32_t)(neutral - deadband - low));
   }
-  else if ((now_ms - s_steer_filter_ms) >= COMMAND_STEER_FILTER_PERIOD_MS)
+  if (pulse > (uint16_t)(neutral + deadband))
   {
-    s_steer_filter_ms = now_ms;
-    s_steer_sum -= s_steer_samples[s_steer_index];
-    s_steer_samples[s_steer_index] = pulse;
-    s_steer_sum += pulse;
-    s_steer_index = (uint8_t)((s_steer_index + 1U) % COMMAND_STEER_FILTER_WINDOW);
+    if (pulse >= high) return 1000;
+    return (int16_t)(((int32_t)(pulse - neutral - deadband) * 1000) /
+                     (int32_t)(high - neutral - deadband));
   }
-  return (uint16_t)((s_steer_sum + COMMAND_STEER_FILTER_WINDOW / 2U) / COMMAND_STEER_FILTER_WINDOW);
+  return 0;
 }
 
-static uint8_t CommandApp_PulseInRange(uint16_t pulse_us,
-                                       uint16_t minimum_us,
-                                       uint16_t maximum_us)
+static int16_t CommandApp_Drive(uint16_t pulse)
 {
-  return (uint8_t)(((pulse_us >= minimum_us) &&
-                    (pulse_us <= maximum_us)) ? 1U : 0U);
+  return CommandApp_MapPulse(pulse, CHASSIS_FC_DRIVE_REVERSE_FULL_US,
+      CHASSIS_FC_DRIVE_NEUTRAL_US, CHASSIS_FC_DRIVE_FORWARD_FULL_US,
+      CHASSIS_FC_DRIVE_DEADBAND_US);
 }
 
-static int16_t CommandApp_PulseToPermille(uint16_t pulse_us)
+static int16_t CommandApp_Steer(uint16_t pulse)
 {
-  int32_t delta = (int32_t)pulse_us - (int32_t)COMMAND_CENTER_US;
-  int32_t magnitude;
-
-  if ((delta >= -(int32_t)COMMAND_DEADBAND_US) &&
-      (delta <= (int32_t)COMMAND_DEADBAND_US))
-  {
-    return 0;
-  }
-  magnitude = (delta < 0) ? -delta : delta;
-  if (magnitude > (int32_t)COMMAND_THROTTLE_MAX_OFFSET_US) magnitude = COMMAND_THROTTLE_MAX_OFFSET_US;
-  magnitude = (magnitude - (int32_t)COMMAND_DEADBAND_US) * 1000 /
-              (int32_t)(COMMAND_THROTTLE_MAX_OFFSET_US - COMMAND_DEADBAND_US);
-  return (int16_t)((delta < 0) ? -magnitude : magnitude);
+  return CommandApp_MapPulse(pulse, CHASSIS_FC_STEER_LEFT_FULL_US,
+      CHASSIS_FC_STEER_NEUTRAL_US, CHASSIS_FC_STEER_RIGHT_FULL_US,
+      CHASSIS_FC_STEER_DEADBAND_US);
 }
 
-/* V4 MC7 CH1 endpoints 1257/1500/1757 us; deadband 45 us. */
-static int16_t CommandApp_SteeringPermille(uint16_t pulse_us)
+/* 回中检查直接使用脉宽死区，不能把整数映射舍入到0的边缘值当作回中。 */
+static uint8_t CommandApp_InDeadband(uint16_t pulse, uint16_t neutral, uint16_t half)
 {
-  int32_t axis = (int32_t)pulse_us - COMMAND_STEER_CENTER_US;
-  int32_t magnitude = (axis < 0) ? -axis : axis;
-  int32_t endpoint = (axis < 0) ? COMMAND_STEER_LEFT_OFFSET_US : COMMAND_STEER_RIGHT_OFFSET_US;
-  if (magnitude <= COMMAND_STEER_DEADBAND_US) return 0;
-  if (magnitude > endpoint) magnitude = endpoint;
-  magnitude = (magnitude - COMMAND_STEER_DEADBAND_US) * 1000 / (endpoint - COMMAND_STEER_DEADBAND_US);
-  return (int16_t)((axis < 0) ? -magnitude : magnitude);
+  return (uint8_t)(pulse >= neutral - half && pulse <= neutral + half);
 }
 
-static uint8_t CommandApp_DecodeMode(uint16_t pulse_us)
+static void CommandApp_ResetRelease(uint8_t gate)
 {
-  if (CommandApp_PulseInRange(pulse_us,
-                              COMMAND_SWITCH_LOCK_MIN_US,
-                              COMMAND_SWITCH_LOCK_MAX_US) != 0U)
-  {
-    return ROBOT_MODE_LOCKED;
-  }
-  if (CommandApp_PulseInRange(pulse_us,
-                              COMMAND_SWITCH_MANUAL_MIN_US,
-                              COMMAND_SWITCH_MANUAL_MAX_US) != 0U)
-  {
-    return ROBOT_MODE_MANUAL;
-  }
-  if (CommandApp_PulseInRange(pulse_us,
-                              COMMAND_SWITCH_AUTO_MIN_US,
-                              COMMAND_SWITCH_AUTO_MAX_US) != 0U)
-  {
-    return ROBOT_MODE_AUTO_FC;
-  }
-  return COMMAND_MODE_INVALID;
-}
-
-static uint16_t CommandApp_SpeedLimit(uint16_t pulse_us)
-{
-  uint32_t span = COMMAND_MAX_SPEED_LIMIT_ERPM - COMMAND_MIN_SPEED_LIMIT_ERPM;
-
-  if (pulse_us < COMMAND_LIMIT_KNOB_MIN_US)
-  {
-    pulse_us = COMMAND_LIMIT_KNOB_MIN_US;
-  }
-  if (pulse_us > COMMAND_LIMIT_KNOB_MAX_US)
-  {
-    pulse_us = COMMAND_LIMIT_KNOB_MAX_US;
-  }
-  return (uint16_t)(COMMAND_MIN_SPEED_LIMIT_ERPM +
-                    ((span * (uint32_t)(pulse_us - COMMAND_LIMIT_KNOB_MIN_US)) /
-                     (COMMAND_LIMIT_KNOB_MAX_US - COMMAND_LIMIT_KNOB_MIN_US)));
-}
-
-static void CommandApp_ResetSwitchQualification(void)
-{
-  s_stable_mode = COMMAND_MODE_INVALID;
-  s_candidate_mode = COMMAND_MODE_INVALID;
-  s_candidate_frames = 0U;
-  s_unconfirmed_frames = 0U;
-}
-
-static void CommandApp_QualifyMode(uint8_t raw_mode)
-{
-  if ((raw_mode == s_stable_mode) && (raw_mode != COMMAND_MODE_INVALID))
-  {
-    s_candidate_mode = raw_mode;
-    s_candidate_frames = 0U;
-    s_unconfirmed_frames = 0U;
-    return;
-  }
-
-  if (s_stable_mode != COMMAND_MODE_INVALID)
-  {
-    if (s_unconfirmed_frames < COMMAND_SWITCH_CONFIRM_FRAMES)
-    {
-      s_unconfirmed_frames++;
-    }
-  }
-
-  /* 非法值和其他合法档位共用偏离计数，二者交替不能无限保持原档。 */
-  if (raw_mode == COMMAND_MODE_INVALID)
-  {
-    s_candidate_mode = COMMAND_MODE_INVALID;
-    s_candidate_frames = 0U;
-  }
-  else if (raw_mode != s_candidate_mode)
-  {
-    s_candidate_mode = raw_mode;
-    s_candidate_frames = 1U;
-  }
-  else if (s_candidate_frames < COMMAND_SWITCH_CONFIRM_FRAMES)
-  {
-    s_candidate_frames++;
-  }
-
-  if (s_candidate_frames >= COMMAND_SWITCH_CONFIRM_FRAMES)
-  {
-    s_stable_mode = raw_mode;
-    s_candidate_frames = 0U;
-    s_unconfirmed_frames = 0U;
-  }
-  else if (s_unconfirmed_frames >= COMMAND_SWITCH_CONFIRM_FRAMES)
-  {
-    s_rc_diagnostics.mode_reject_count++;
-    s_stable_mode = COMMAND_MODE_INVALID;
-    s_unconfirmed_frames = 0U;
-  }
-}
-
-static void CommandApp_UpdateLossDuration(uint32_t now_ms)
-{
-  uint32_t elapsed = now_ms - s_loss_start_ms;
-  s_rc_diagnostics.last_loss_ms = elapsed;
-  if (elapsed > s_rc_diagnostics.max_loss_ms)
-  {
-    s_rc_diagnostics.max_loss_ms = elapsed;
-  }
-  if ((elapsed >= COMMAND_REVOKE_ARM_MS) && (s_startup_lock_seen != 0U))
-  {
-    s_startup_lock_seen = 0U;
-    s_rc_diagnostics.revoke_count++;
-  }
-}
-
-static void CommandApp_RecordLoss(uint32_t now_ms)
-{
-  if (s_loss_active == 0U)
-  {
-    s_loss_active = 1U;
-    s_loss_start_ms = now_ms;
-  }
-  CommandApp_UpdateLossDuration(now_ms);
-}
-
-static void CommandApp_Lock(uint8_t gate)
-{
-  g_robot_command.mode = ROBOT_MODE_LOCKED;
+  g_robot_command.released = 0U;
   g_robot_command.gate = gate;
   g_robot_command.throttle_permille = 0;
   g_robot_command.steering_permille = 0;
-  s_steer_filter_valid = 0U;
-  s_release_ready = 0U;
-  s_center_start_ms = 0U;
+  s_center_timing = 0U;
+  s_diagnostics.center_elapsed_ms = 0U;
+}
+
+static void CommandApp_PublishInputs(void)
+{
+  g_robot_chassis.fc_drive_raw_us = s_diagnostics.drive.raw_us;
+  g_robot_chassis.fc_drive_filtered_us = s_diagnostics.drive.filtered_us;
+  g_robot_chassis.fc_steer_raw_us = s_diagnostics.steer.raw_us;
+  g_robot_chassis.fc_steer_filtered_us = s_diagnostics.steer.filtered_us;
+  g_robot_chassis.fc_drive_online = s_diagnostics.drive.online;
+  g_robot_chassis.fc_steer_online = s_diagnostics.steer.online;
+  g_robot_chassis.fc_drive_fault = (uint8_t)s_diagnostics.drive.fault;
+  g_robot_chassis.fc_steer_fault = (uint8_t)s_diagnostics.steer.fault;
+  g_robot_chassis.fc_release_ready = g_robot_command.released;
 }
 
 void CommandApp_Init(void)
 {
-  memset(&s_rc, 0, sizeof(s_rc));
-  memset(&s_rc_diagnostics, 0, sizeof(s_rc_diagnostics));
+  PwmInput_Config_t config;
   memset(&g_robot_command, 0, sizeof(g_robot_command));
-  memset(s_steer_samples, 0, sizeof(s_steer_samples));
-  s_last_good_frame_count = 0U;
-  s_last_lost_count = 0U;
-  s_last_guard_event_count = 0U;
+  memset(&s_diagnostics, 0, sizeof(s_diagnostics));
+  memset(s_invalid_count, 0, sizeof(s_invalid_count));
+  memset(s_timeout_count, 0, sizeof(s_timeout_count));
+  memset(s_center_pair_count, 0, sizeof(s_center_pair_count));
   s_center_start_ms = 0U;
-  s_loss_start_ms = 0U;
-  s_startup_lock_seen = 0U;
-  s_release_ready = 0U;
-  s_loss_active = 0U;
-  s_steer_sum = 0U;
-  s_steer_filter_ms = 0U;
-  s_steer_index = 0U;
-  s_steer_filter_valid = 0U;
-  CommandApp_ResetSwitchQualification();
-  g_robot_command.gate = ROBOT_GATE_STARTUP_LOCK_REQUIRED;
-  g_robot_command.speed_limit_erpm = COMMAND_MIN_SPEED_LIMIT_ERPM;
-  SBusRc_Init(&s_rc, &huart1);
+  s_center_timing = 0U;
+  g_robot_command.mode = (CHASSIS_STEER_CALIBRATION_SIDE == 0U) ?
+      ROBOT_MODE_AUTO_FC : ROBOT_MODE_CALIBRATION;
+  g_robot_command.gate = ROBOT_GATE_FC_INPUT_INVALID;
+  g_robot_command.speed_limit_erpm = CHASSIS_FC_SPEED_LIMIT_ERPM;
+  s_diagnostics.drive.fault = s_diagnostics.steer.fault = PWM_INPUT_FAULT_NOT_READY;
+
+  memset(&config, 0, sizeof(config));
+  config.timer = &htim3;
+  config.minimum_valid_us = CHASSIS_FC_PWM_MIN_VALID_US;
+  config.maximum_valid_us = CHASSIS_FC_PWM_MAX_VALID_US;
+  config.timeout_ms = CHASSIS_FC_PWM_TIMEOUT_MS;
+  config.transient_fault_hold_ms = CHASSIS_FC_PWM_TRANSIENT_HOLD_MS;
+  config.valid_samples_to_online = CHASSIS_FC_PWM_VALID_TO_ONLINE;
+  config.channel = TIM_CHANNEL_3;
+  config.average_window = CHASSIS_FC_DRIVE_AVERAGE_WINDOW;
+  s_drive_input = PwmInput_Register(&config);
+  config.channel = TIM_CHANNEL_4;
+  config.average_window = CHASSIS_FC_STEER_AVERAGE_WINDOW;
+  s_steer_input = PwmInput_Register(&config);
+  /* 注册失败保持未就绪，不能退化成单通道运行。 */
+  CommandApp_PublishInputs();
 }
 
 void CommandApp_Task(uint32_t now_ms)
 {
-  SBusRc_Data_t data_snapshot;
-  const SBusRc_Data_t *data = &data_snapshot;
-  uint8_t raw_mode;
-  uint8_t new_frame;
-  uint8_t new_guard_event;
-  uint8_t new_lost_frame;
-  int16_t throttle;
-  uint16_t steer_filtered;
+  uint8_t healthy, new_fault, drive_centered, steer_centered;
+  uint8_t previously_online = g_robot_command.source_online;
+  uint8_t new_pair;
+  uint16_t steer_pulse;
 
-  SBusRc_Task(&s_rc, now_ms);
-  if (SBusRc_GetSnapshot(&s_rc, &data_snapshot) == 0U)
+  if (PwmInput_GetSnapshot(s_drive_input, &s_diagnostics.drive, now_ms) == 0U)
   {
-    g_robot_command.rc_online = 0U;
-    g_robot_command.failsafe = 1U;
-    CommandApp_RecordLoss(now_ms);
-    CommandApp_ResetSwitchQualification();
-    CommandApp_Lock(ROBOT_GATE_RC_LOST);
-    return;
+    memset(&s_diagnostics.drive, 0, sizeof(s_diagnostics.drive));
+    s_diagnostics.drive.fault = PWM_INPUT_FAULT_NOT_READY;
   }
-  s_rc_diagnostics.sbus = data_snapshot;
-  new_frame = (uint8_t)((data->good_frame_count != s_last_good_frame_count) &&
-                         (data->frame_lost == 0U));
-  s_last_good_frame_count = data->good_frame_count;
-  new_guard_event = (uint8_t)(data->guard_event_count != s_last_guard_event_count);
-  s_last_guard_event_count = data->guard_event_count;
-  new_lost_frame = (uint8_t)(data->lost_count != s_last_lost_count);
-  s_last_lost_count = data->lost_count;
-
-  g_robot_command.rc_online = data->online;
-  g_robot_command.failsafe = (uint8_t)((data->failsafe != 0U) ||
-                                       (data->guard_reason != 0U) ||
-                                       (new_guard_event != 0U));
-  g_robot_command.frame_count = data->frame_count;
-  g_robot_command.rc_error_count = data->error_count;
-  memcpy(g_robot_command.rc_pulse_us, data->pulse_us, sizeof(g_robot_command.rc_pulse_us));
-
-  if ((data->online == 0U) || (g_robot_command.failsafe != 0U))
+  if (PwmInput_GetSnapshot(s_steer_input, &s_diagnostics.steer, now_ms) == 0U)
   {
-    CommandApp_RecordLoss(now_ms);
-    CommandApp_ResetSwitchQualification();
-    CommandApp_Lock(ROBOT_GATE_RC_LOST);
-    return;
+    memset(&s_diagnostics.steer, 0, sizeof(s_diagnostics.steer));
+    s_diagnostics.steer.fault = PWM_INPUT_FAULT_NOT_READY;
   }
-  if (s_loss_active != 0U)
+  /* 累计事件在底层恢复后仍保留，不能因任务漏过瞬时异常而沿用旧的非零授权。 */
+  new_fault = (uint8_t)(s_diagnostics.drive.invalid_pulse_count != s_invalid_count[0] ||
+                       s_diagnostics.steer.invalid_pulse_count != s_invalid_count[1] ||
+                       s_diagnostics.drive.timeout_event_count != s_timeout_count[0] ||
+                       s_diagnostics.steer.timeout_event_count != s_timeout_count[1]);
+  s_invalid_count[0] = s_diagnostics.drive.invalid_pulse_count;
+  s_invalid_count[1] = s_diagnostics.steer.invalid_pulse_count;
+  s_timeout_count[0] = s_diagnostics.drive.timeout_event_count;
+  s_timeout_count[1] = s_diagnostics.steer.timeout_event_count;
+  healthy = (uint8_t)(s_diagnostics.drive.online && s_diagnostics.steer.online &&
+      s_diagnostics.drive.fault == PWM_INPUT_FAULT_NONE &&
+      s_diagnostics.steer.fault == PWM_INPUT_FAULT_NONE && !new_fault);
+  g_robot_command.source_online = healthy;
+  drive_centered = (uint8_t)(CommandApp_InDeadband(s_diagnostics.drive.raw_us,
+      CHASSIS_FC_DRIVE_NEUTRAL_US, CHASSIS_FC_DRIVE_DEADBAND_US) &&
+      CommandApp_InDeadband(s_diagnostics.drive.filtered_us,
+      CHASSIS_FC_DRIVE_NEUTRAL_US, CHASSIS_FC_DRIVE_DEADBAND_US));
+  steer_centered = (uint8_t)(CommandApp_InDeadband(s_diagnostics.steer.raw_us,
+      CHASSIS_FC_STEER_NEUTRAL_US, CHASSIS_FC_STEER_DEADBAND_US) &&
+      CommandApp_InDeadband(s_diagnostics.steer.filtered_us,
+      CHASSIS_FC_STEER_NEUTRAL_US, CHASSIS_FC_STEER_DEADBAND_US));
+  g_robot_command.centered = (uint8_t)(healthy && drive_centered && steer_centered);
+  if (!healthy)
   {
-    /* 恢复帧也检查完整时长，避免 699 ms 异常、710 ms 恢复漏掉撤权。 */
-    CommandApp_UpdateLossDuration(now_ms);
-    s_loss_active = 0U;
+    if (previously_online || new_fault) g_robot_command.fault_event_count++;
+    CommandApp_ResetRelease(ROBOT_GATE_FC_INPUT_INVALID);
   }
-
-  throttle = CommandApp_PulseToPermille(data->pulse_us[COMMAND_CH_THROTTLE]);
-  g_robot_command.throttle_centered = (uint8_t)((throttle == 0) ? 1U : 0U);
-  g_robot_command.speed_limit_erpm =
-      CommandApp_SpeedLimit(data->pulse_us[COMMAND_CH_SPEED_LIMIT]);
-
-  raw_mode = CommandApp_DecodeMode(data->pulse_us[COMMAND_CH_MODE]);
-  if ((data->frame_lost != 0U) || (new_lost_frame != 0U))
+  else if (CHASSIS_FC_CONTROL_ENABLE == 0U)
   {
-    /* 丢帧中断新档连续确认；累计计数也能发现已被健康帧覆盖的短丢帧。
-     * 保留偏离原档计数，非法值/丢帧/其他档交替不能无限保持原档。
-     */
-    s_candidate_mode = COMMAND_MODE_INVALID;
-    s_candidate_frames = 0U;
+    CommandApp_ResetRelease(ROBOT_GATE_FC_CENTERING);
   }
-  if (new_frame != 0U)
+  else if (CHASSIS_STEER_CALIBRATION_SIDE != 0U && !drive_centered)
   {
-    CommandApp_QualifyMode(raw_mode);
-  }
-
-  if ((s_stable_mode == ROBOT_MODE_LOCKED) && (throttle == 0))
-  {
-    s_startup_lock_seen = 1U;
-  }
-  if (s_startup_lock_seen == 0U)
-  {
-    CommandApp_Lock(ROBOT_GATE_STARTUP_LOCK_REQUIRED);
-    return;
-  }
-  if (s_stable_mode == COMMAND_MODE_INVALID)
-  {
-    CommandApp_Lock(ROBOT_GATE_MODE_CONFIRMING);
-    return;
-  }
-  if (s_stable_mode == ROBOT_MODE_LOCKED)
-  {
-    CommandApp_Lock(ROBOT_GATE_READY);
-    return;
-  }
-
-  if (g_robot_command.mode != s_stable_mode)
-  {
-    g_robot_command.mode = s_stable_mode;
-    s_center_start_ms = 0U;
-    s_release_ready = 0U;
-    s_steer_filter_valid = 0U;
-  }
-
-  if (g_robot_command.mode == ROBOT_MODE_AUTO_FC)
-  {
-    s_steer_filter_valid = 0U;
-    g_robot_command.steering_permille = 0;
-    g_robot_command.throttle_permille = 0;
-    g_robot_command.gate = ROBOT_GATE_READY;
-    return;
-  }
-
-  steer_filtered = CommandApp_FilterSteering(data->pulse_us[COMMAND_CH_STEERING], now_ms);
-  g_robot_command.steering_filtered_us = steer_filtered;
-  g_robot_command.steering_permille = CommandApp_SteeringPermille(
-      (CHASSIS_STEER_CALIBRATION_SIDE != 0U && COMMAND_CAL_USE_RAW_STEERING != 0U) ?
-      data->pulse_us[COMMAND_CH_STEERING] : steer_filtered);
-
-  if (s_release_ready == 0U)
-  {
-    if (throttle == 0)
-    {
-      if (s_center_start_ms == 0U)
-      {
-        s_center_start_ms = now_ms;
-      }
-      /* 短丢帧只能保持既有释放；新放行必须由健康新帧确认回中。 */
-      if (((now_ms - s_center_start_ms) >= COMMAND_CENTER_RELEASE_MS) &&
-          (new_frame != 0U))
-      {
-        s_release_ready = 1U;
-      }
-    }
-    else
-    {
-      s_center_start_ms = 0U;
-    }
-  }
-
-  if (s_release_ready == 0U)
-  {
-    g_robot_command.gate = ROBOT_GATE_THROTTLE_CENTERING;
-    g_robot_command.throttle_permille = 0;
+    /* 开环维护的MAIN1是持续停止门，而不只是初次授权条件。 */
+    CommandApp_ResetRelease(ROBOT_GATE_CAL_DRIVE_NOT_CENTERED);
   }
   else
   {
-    g_robot_command.gate = ROBOT_GATE_READY;
-    g_robot_command.throttle_permille = throttle;
+    if (!g_robot_command.released)
+    {
+      if (!g_robot_command.centered)
+      {
+        CommandApp_ResetRelease(ROBOT_GATE_FC_CENTERING);
+      }
+      else
+      {
+        if (!s_center_timing)
+        {
+          s_center_timing = 1U;
+          s_center_start_ms = now_ms;
+          s_center_pair_count[0] = s_diagnostics.drive.valid_pulse_count;
+          s_center_pair_count[1] = s_diagnostics.steer.valid_pulse_count;
+        }
+        s_diagnostics.center_elapsed_ms = now_ms - s_center_start_ms;
+        new_pair = (uint8_t)(s_diagnostics.drive.valid_pulse_count != s_center_pair_count[0] &&
+                            s_diagnostics.steer.valid_pulse_count != s_center_pair_count[1]);
+        if (new_pair)
+        {
+          s_center_pair_count[0] = s_diagnostics.drive.valid_pulse_count;
+          s_center_pair_count[1] = s_diagnostics.steer.valid_pulse_count;
+          if (s_diagnostics.center_elapsed_ms >= CHASSIS_FC_RELEASE_CENTER_MS)
+            g_robot_command.released = 1U;
+        }
+        g_robot_command.gate = g_robot_command.released ? ROBOT_GATE_READY : ROBOT_GATE_FC_CENTERING;
+      }
+    }
+    if (g_robot_command.released)
+    {
+      steer_pulse = (CHASSIS_STEER_CALIBRATION_SIDE != 0U && COMMAND_FC_CAL_USE_RAW_STEERING != 0U) ?
+          s_diagnostics.steer.raw_us : s_diagnostics.steer.filtered_us;
+      g_robot_command.steering_permille = CommandApp_Steer(steer_pulse);
+      g_robot_command.throttle_permille = (CHASSIS_STEER_CALIBRATION_SIDE == 0U) ?
+          CommandApp_Drive(s_diagnostics.drive.filtered_us) : 0;
+      g_robot_command.gate = ROBOT_GATE_READY;
+    }
   }
+  CommandApp_PublishInputs();
 }
 
-void CommandApp_GetRcDiagnostics(CommandRcDiagnostics *out)
+void CommandApp_GetFcDiagnostics(CommandFcDiagnostics *out)
 {
-  if (out != NULL)
-  {
-    *out = s_rc_diagnostics;
-  }
+  if (out != 0) *out = s_diagnostics;
 }

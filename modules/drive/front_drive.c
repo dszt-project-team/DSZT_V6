@@ -896,7 +896,7 @@ static uint8_t FrontDrive_ServiceSafetyClear(FrontDrive_Handle_t *drive, uint32_
         /*
          * 运行中丢 Z 后，只要尚未重新 READY，任何安全清零收尾都必须回到
          * FAILED/WAIT_REARM。即使状态帧短暂恢复 fault=0，也不能借普通重臂路径
-         * 自动进入 QUERY/IDLE，必须等上层确认 CH3 回中后显式重试。
+         * 自动进入 QUERY/IDLE，必须等上层确认飞控输入回中后显式重试。
          */
         drive->safety_rearm_in_progress = 0U;
         drive->z_cycle_count = 0U;
@@ -2157,7 +2157,7 @@ void FrontDrive_RetryZSearch(FrontDrive_Handle_t *drive, uint32_t now_ms)
 /**
   * @brief 上层确认安全后启动重连清零，并在新状态确认双侧零速后解除锁存。
   * @param drive 前轮驱动对象。
-  * @note  只应在油门回中、急停未触发、SBUS 在线时调用；WAIT_REARM 不直接放行。
+  * @note  只应在双路飞控健康回中并满足上层授权时调用；WAIT_REARM 不直接放行。
   */
 void FrontDrive_RearmSafety(FrontDrive_Handle_t *drive, uint32_t now_ms)
 {

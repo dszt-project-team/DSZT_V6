@@ -11,13 +11,17 @@ New-Item -ItemType Directory -Path $testOutput -Force | Out-Null
 Push-Location $projectRoot
 try {
     $common = @('-Itests/stubs', '-Iapplication', '-Iapplication/chassis')
+    $fc = @('-Itests/chassis_stubs', '-Iapplication', '-Iapplication/command', '-Iapplication/chassis', '-Ibsp/communication', '-Imodules/drive', '-Imodules/input')
     $cases = @(
         @{ Name='test_dual_steer'; Includes=$common },
         @{ Name='test_left_calibration'; Includes=$common },
         @{ Name='test_closed_steer'; Includes=$common },
-        @{ Name='test_command'; Includes=$common },
-        @{ Name='test_debug_sbus'; Includes=@('-Itests/debug_stubs', '-Iapplication', '-Iapplication/chassis', '-Iapplication/command', '-Imodules/remote', '-Ibsp/communication', '-Ibsp/dispatch') },
+        @{ Name='test_fc_command'; Includes=$fc },
+        @{ Name='test_fc_command_calibration'; Includes=$fc },
+        @{ Name='test_fc_pwm_command_integration'; Includes=@('-Itests/pwm_stubs', '-Iapplication', '-Iapplication/command', '-Iapplication/chassis', '-Ibsp/dispatch', '-Imodules/input') },
+        @{ Name='test_debug_fc'; Includes=@('-Itests/debug_stubs', '-Iapplication', '-Iapplication/chassis', '-Iapplication/command', '-Imodules/input', '-Ibsp/communication', '-Ibsp/dispatch') },
         @{ Name='test_vehicle_status'; Includes=@('-Iapplication') },
+        @{ Name='test_vehicle_status_config'; Includes=@('-Iapplication') },
         @{ Name='test_lighting_status'; Includes=@('-Itests/lighting_stubs', '-Iapplication', '-Imodules/lighting') },
         @{ Name='test_lighting_zero_exit'; Includes=@('-Itests/lighting_stubs', '-Iapplication', '-Imodules/lighting') },
         @{ Name='test_ws2812_recovery'; Includes=@('-Itests/ws2812_stubs', '-Ibsp/dispatch') },
@@ -30,12 +34,10 @@ try {
         @{ Name='test_oid_stop_guard_field_cases'; Includes=$common },
         @{ Name='test_oid_diagnostics'; Includes=@('-Itests/oid_stubs', '-Ibsp/communication', '-Imodules/drive', '-Imodules/protocol') },
         @{ Name='test_oid_mode_recovery'; Includes=@('-Itests/oid_stubs', '-Ibsp/communication', '-Imodules/drive', '-Imodules/protocol') },
-        @{ Name='test_uart_idle_irq'; Includes=@('-Itests/irq_stubs', '-ICore/Inc') },
         @{ Name='test_rs485_frame_timeout'; Includes=@('-Itests/rs485_stubs', '-Ibsp/communication', '-Ibsp/dispatch') },
-        @{ Name='test_chassis_control'; Includes=@('-Itests/chassis_stubs', '-Iapplication', '-Iapplication/chassis', '-Ibsp/communication', '-Imodules/drive', '-Imodules/input') },
+        @{ Name='test_chassis_control'; Includes=$fc },
+        @{ Name='test_chassis_calibration'; Includes=$fc },
         @{ Name='test_pwm_input'; Includes=@('-Itests/pwm_stubs', '-Ibsp/dispatch') },
-        @{ Name='test_sbus_timestamp'; Includes=@('-Itests/input_time_stubs', '-Ibsp/dispatch') },
-        @{ Name='test_sbus_command_integration'; Includes=@('-Itests/input_time_stubs', '-Itests/sbus_integration_stubs', '-Ibsp/dispatch', '-Imodules/remote', '-Iapplication', '-Iapplication/chassis') },
         @{ Name='test_encoder_timestamp'; Includes=@('-Itests/input_time_stubs', '-Ibsp/dispatch') }
     )
     foreach ($case in $cases) {

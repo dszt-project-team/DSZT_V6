@@ -1,4 +1,4 @@
-/* DSZT_V6 lighting 配置：修改宏后需重新编译下载；中文注释说明当前作用及调整约束。
+/* DSZT_V6_FC lighting 配置：修改宏后需重新编译下载；中文注释说明当前作用及调整约束。
  * 0/1开关按各项适用范围使用，不代表绕过其他安全门。
  */
 #ifndef LIGHTING_CONFIG_H
@@ -27,9 +27,9 @@
 #define LIGHTING_APP_MOTION_CYCLE_MS        900U
 /* 行进光段最大长度，当前3像素；允许1~WS2812_STRIP_MAX_LED_COUNT，短灯带自动截短。 */
 #define LIGHTING_APP_MOTION_SEGMENT_PIXELS    3U
-/* 左右转向灯开关：1启用、0关闭；只在转向已释放的手动/自动就绪状态显示，不影响转向控制。 */
+/* 左右转向灯开关：1启用、0关闭；只在转向已释放的飞控自动就绪状态显示，不影响转向控制。 */
 #define LIGHTING_APP_TURN_SIGNAL_ENABLE      1U
-/* 转向指示进入阈值，当前120/1000；允许1~1000，取已选定手动/飞控的转向指令，负左正右。 */
+/* 转向指示进入阈值，当前120/1000；允许1~1000，取飞控转向调度指令，负左正右。 */
 #define LIGHTING_APP_TURN_ENTER_PERMILLE    120
 /* 转向指示退出阈值，当前60/1000；允许0~ENTER-1，低于此值退出；精确回中始终退出，含阈值设0。 */
 #define LIGHTING_APP_TURN_EXIT_PERMILLE      60

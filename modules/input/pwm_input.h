@@ -44,6 +44,8 @@ typedef struct
   uint32_t last_invalid_ms;
   uint32_t valid_pulse_count;
   uint32_t invalid_pulse_count;
+  /* 累计断流事件；好帧恢复不清零，任务据此撤销断流前的控制释放。 */
+  uint32_t timeout_event_count;
   PwmInput_Fault_t fault;
   uint8_t online;
 } PwmInput_Snapshot_t;

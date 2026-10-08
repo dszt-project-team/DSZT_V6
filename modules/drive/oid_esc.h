@@ -25,7 +25,7 @@ extern "C" {
 #define OID_ESC_REG_CONTROL_MODE       0x1771U
 /* 目标电流寄存器，当前项目未作为常规行走控制入口。 */
 #define OID_ESC_REG_TARGET_CURRENT     0x1772U
-/* 目标速度寄存器，单位 ERPM；CH3 前后走最终写这里。 */
+/* 目标速度寄存器，单位 ERPM；MAIN1 行走指令经差速后最终写这里。 */
 #define OID_ESC_REG_TARGET_SPEED       0x1773U
 /* 目标占空比寄存器；仅供禁用的 ABZ 兼容路径使用，V6 正常行走不使用。 */
 #define OID_ESC_REG_TARGET_DUTY        0x1775U

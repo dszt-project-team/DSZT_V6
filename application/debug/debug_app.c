@@ -1,7 +1,6 @@
 #include "debug_app.h"
 #include "debug_config.h"
 #include "bsp_callback.h"
-#include "command_config.h"
 #include "command_app.h"
 #include "chassis_config.h"
 
@@ -50,7 +49,6 @@ static void DebugApp_Command(void)
 {
   if (strcmp(s_command_line, "DBG GENERIC") == 0) s_output_mode = DEBUG_APP_OUTPUT_GENERIC;
   else if (strcmp(s_command_line, "DBG OID") == 0) s_output_mode = DEBUG_APP_OUTPUT_OID;
-  else if (strcmp(s_command_line, "DBG SBUS") == 0) s_output_mode = DEBUG_APP_OUTPUT_SBUS;
   else if (strcmp(s_command_line, "DBG MT6826S") == 0) s_output_mode = DEBUG_APP_OUTPUT_MT6826S;
   else if (strcmp(s_command_line, "DBG FC") == 0) s_output_mode = DEBUG_APP_OUTPUT_FC;
   else if (strcmp(s_command_line, "DBG OFF") == 0) s_output_mode = DEBUG_APP_OUTPUT_OFF;
@@ -97,6 +95,10 @@ static void DebugApp_PollCommands(void)
 void DebugApp_Init(void)
 {
   BspUartCallbackConfig callback;
+  s_output_mode = DEBUG_APP_OUTPUT_MODE;
+  s_last_output_ms = 0U;
+  s_rx_head = s_rx_tail = 0U;
+  s_rx_overflow = s_command_length = s_discard_line = s_reply = 0U;
   if (DEBUG_APP_ENABLE == 0U) return;
   (void)BspUart_Init(&s_debug_port, &huart7, 30U);
   if (DEBUG_APP_COMMAND_ENABLE != 0U)
@@ -113,9 +115,8 @@ void DebugApp_Init(void)
 void DebugApp_Task(uint32_t now_ms)
 {
   int length;
-  uint32_t period = (s_output_mode == DEBUG_APP_OUTPUT_SBUS) ?
-      DEBUG_APP_SBUS_PRINT_PERIOD_MS : ((s_output_mode == DEBUG_APP_OUTPUT_OID) ?
-      DEBUG_APP_OID_PRINT_PERIOD_MS : DEBUG_APP_TEXT_PRINT_PERIOD_MS);
+  uint32_t period = (s_output_mode == DEBUG_APP_OUTPUT_OID) ?
+      DEBUG_APP_OID_PRINT_PERIOD_MS : DEBUG_APP_TEXT_PRINT_PERIOD_MS;
   if (DEBUG_APP_ENABLE == 0U) return;
   if (DEBUG_APP_COMMAND_ENABLE != 0U) DebugApp_PollCommands();
 
@@ -134,38 +135,9 @@ void DebugApp_Task(uint32_t now_ms)
   if (s_reply != 0U)
   {
     length = snprintf(s_debug_line, sizeof(s_debug_line),
-        "DBG %s mode=%u readonly=1 commands=DBG GENERIC|OID|SBUS|MT6826S|FC|OFF; DBG?\r\n",
+        "DBG %s mode=%u readonly=1 commands=DBG GENERIC|OID|MT6826S|FC|OFF; DBG?\r\n",
         s_reply == 3U ? "ERR" : "OK", s_output_mode);
     s_reply = 0U;
-  }
-  else if (s_output_mode == DEBUG_APP_OUTPUT_SBUS)
-  {
-    CommandRcDiagnostics diag;
-    uint32_t good_age;
-    CommandApp_GetRcDiagnostics(&diag);
-    /* HAL 当前时间须晚于命令快照，避免 ISR 更新晚于本轮入参而出现下溢。 */
-    good_age = (diag.sbus.good_frame_count != 0U) ?
-        (uint32_t)(HAL_GetTick() - diag.sbus.last_good_ms) : UINT32_MAX;
-    length = snprintf(s_debug_line, sizeof(s_debug_line),
-        "SBUS t=%lu rc=%u fs=%u mode=%u gate=%u frames=%lu err=%lu ch1=%u filt=%u ch3=%u ch5=%u ch7=%u thr=%d steer=%d lim=%u calraw=%u ui=%u "
-        "flags=%02X fl=%u rf=%u reason=%u/%u events=%lu evtms=%lu lost=%lu streak=%u fsc=%lu uart=%lu tout=%lu good=%lu goodage=%lu revoke=%lu modebad=%lu lossms=%lu/%lu\r\n",
-        (unsigned long)now_ms, g_robot_command.rc_online, g_robot_command.failsafe,
-        g_robot_command.mode, g_robot_command.gate, (unsigned long)g_robot_command.frame_count,
-        (unsigned long)g_robot_command.rc_error_count, g_robot_command.rc_pulse_us[COMMAND_CH_STEERING],
-        g_robot_command.steering_filtered_us, g_robot_command.rc_pulse_us[COMMAND_CH_THROTTLE],
-        g_robot_command.rc_pulse_us[COMMAND_CH_MODE], g_robot_command.rc_pulse_us[COMMAND_CH_SPEED_LIMIT],
-        g_robot_command.throttle_permille, g_robot_command.steering_permille, g_robot_command.speed_limit_erpm,
-        (unsigned)(CHASSIS_STEER_CALIBRATION_SIDE != 0U && COMMAND_CAL_USE_RAW_STEERING != 0U),
-        (unsigned)VehicleStatus_Get(),
-        (unsigned)diag.sbus.raw_flags, diag.sbus.frame_lost, diag.sbus.failsafe,
-        diag.sbus.guard_reason, diag.sbus.last_guard_reason,
-        (unsigned long)diag.sbus.guard_event_count, (unsigned long)diag.sbus.last_guard_ms,
-        (unsigned long)diag.sbus.lost_count, diag.sbus.lost_streak,
-        (unsigned long)diag.sbus.failsafe_count, (unsigned long)diag.sbus.uart_error_count,
-        (unsigned long)diag.sbus.timeout_count, (unsigned long)diag.sbus.good_frame_count,
-        (unsigned long)good_age, (unsigned long)diag.revoke_count,
-        (unsigned long)diag.mode_reject_count, (unsigned long)diag.last_loss_ms,
-        (unsigned long)diag.max_loss_ms);
   }
   else if (s_output_mode == DEBUG_APP_OUTPUT_MT6826S)
     length = snprintf(s_debug_line, sizeof(s_debug_line),
@@ -183,19 +155,36 @@ void DebugApp_Task(uint32_t now_ms)
         g_robot_chassis.steering_scheduled_permille, g_robot_chassis.steering_speed_gain_permille,
         g_robot_chassis.motion_enabled);
   else if (s_output_mode == DEBUG_APP_OUTPUT_FC)
+  {
+    CommandFcDiagnostics diag;
+    uint32_t now;
+    CommandApp_GetFcDiagnostics(&diag);
+    now = HAL_GetTick();
     length = snprintf(s_debug_line, sizeof(s_debug_line),
-        "FC t=%lu mode=%u rc=%u fs=%u main1=%u/%u/%u/%u main2=%u/%u/%u/%u rel=%u cal=%u en=%u\r\n",
-        (unsigned long)now_ms, g_robot_command.mode, g_robot_command.rc_online, g_robot_command.failsafe,
+        "FC t=%lu mode=%u gate=%u src=%u rel=%u center=%u waitms=%lu events=%lu ui=%u "
+        "main1=%u/%u/%u/%u main2=%u/%u/%u/%u good=%lu/%lu bad=%lu/%lu gap=%lu/%lu age=%lu/%lu badus=%lu/%lu cal=%u thr=%d steer=%d lim=%u en=%u\r\n",
+        (unsigned long)now_ms, g_robot_command.mode, g_robot_command.gate,
+        g_robot_command.source_online, g_robot_command.released, g_robot_command.centered,
+        (unsigned long)diag.center_elapsed_ms, (unsigned long)g_robot_command.fault_event_count,
+        (unsigned)VehicleStatus_Get(),
         g_robot_chassis.fc_drive_raw_us, g_robot_chassis.fc_drive_filtered_us,
         g_robot_chassis.fc_drive_online, g_robot_chassis.fc_drive_fault,
         g_robot_chassis.fc_steer_raw_us, g_robot_chassis.fc_steer_filtered_us,
         g_robot_chassis.fc_steer_online, g_robot_chassis.fc_steer_fault,
-        g_robot_chassis.fc_release_ready, g_robot_chassis.steer_calibration_side, g_robot_chassis.motion_enabled);
+        (unsigned long)diag.drive.valid_pulse_count, (unsigned long)diag.steer.valid_pulse_count,
+        (unsigned long)diag.drive.invalid_pulse_count, (unsigned long)diag.steer.invalid_pulse_count,
+        (unsigned long)diag.drive.timeout_event_count, (unsigned long)diag.steer.timeout_event_count,
+        (unsigned long)(diag.drive.valid_pulse_count ? now - diag.drive.last_valid_ms : UINT32_MAX),
+        (unsigned long)(diag.steer.valid_pulse_count ? now - diag.steer.last_valid_ms : UINT32_MAX),
+        (unsigned long)diag.drive.last_invalid_us, (unsigned long)diag.steer.last_invalid_us,
+        g_robot_chassis.steer_calibration_side, g_robot_command.throttle_permille,
+        g_robot_command.steering_permille, g_robot_command.speed_limit_erpm, g_robot_chassis.motion_enabled);
+  }
   else if (s_output_mode == DEBUG_APP_OUTPUT_OID)
     length = snprintf(s_debug_line, sizeof(s_debug_line),
         "OID t=%lu id=%u/%u param=%u en=%u tgt=%ld,%ld spd=%ld,%ld online=%u/%u fault=%u/%u age=%lu/%lu hb=%lu/%lu to=%u/%u crc=%u/%u bus=%u/%u sm=%u cmd=%u/%u/%u pre=%lu "
         "rmode=%u/%u rtgt=%ld/%ld rage=%lu/%lu rto=%u/%u zwr=%u/%u sack=%u/%u wmiss=%u/%u exc=%u/%u ec=%u/%u stopf=%u cap=%u "
-        "ch3=%u req=%ld rev=%u/%u rd=%u tx=%ld/%ld txt=%lu/%lu hbmax=%lu/%lu\r\n",
+        "main1=%u req=%ld rev=%u/%u rd=%u tx=%ld/%ld txt=%lu/%lu hbmax=%lu/%lu\r\n",
         (unsigned long)now_ms, CHASSIS_OID_LEFT_ID, CHASSIS_OID_RIGHT_ID,
         g_robot_chassis.parameters_confirmed, g_robot_chassis.motion_enabled,
         (long)g_robot_chassis.left_target_erpm, (long)g_robot_chassis.right_target_erpm,
@@ -220,7 +209,7 @@ void DebugApp_Task(uint32_t now_ms)
         g_robot_chassis.oid_exceptions[0], g_robot_chassis.oid_exceptions[1],
         g_robot_chassis.oid_last_exception[0], g_robot_chassis.oid_last_exception[1],
         g_robot_chassis.oid_stop_fault, CHASSIS_OID_COMMISSION_MAX_ERPM,
-        g_robot_command.rc_pulse_us[2], (long)g_robot_chassis.oid_requested_base_erpm,
+        g_robot_chassis.fc_drive_raw_us, (long)g_robot_chassis.oid_requested_base_erpm,
         g_robot_chassis.oid_reverse_wait, g_robot_chassis.oid_reverse_zero_pairs,
         g_robot_chassis.oid_read_active,
         (long)g_robot_chassis.oid_tx_target[0], (long)g_robot_chassis.oid_tx_target[1],
@@ -229,7 +218,7 @@ void DebugApp_Task(uint32_t now_ms)
   else
 
   length = snprintf(s_debug_line, sizeof(s_debug_line),
-                    "V6 t=%lu rc=%u mode=%u gate=%u fs=%u thr=%d steer=%d lim=%u "
+                    "V6_FC t=%lu src=%u mode=%u gate=%u released=%u center=%u events=%lu ui=%u thr=%d steer=%d lim=%u "
                     "param=%u en=%u tgt=%ld,%ld spd=%ld,%ld oid=%u/%u fault=%u/%u "
                     "age=%lu/%lu hb=%lu/%lu to=%u/%u crc=%u/%u bus=%u/%u "
                     "sm=%u cmd=%u/%u/%u pre=%lu "
@@ -237,10 +226,13 @@ void DebugApp_Task(uint32_t now_ms)
                     "cal=%u sr=%u sf=%u raw=%u/%u sh=%u/%u zero=%u/%u "
                     "ang=%d/%d at=%d/%d duty=%d/%d brk=%u/%u dir=%u/%u sched=%d gain=%u\r\n",
                     (unsigned long)now_ms,
-                    g_robot_command.rc_online,
+                    g_robot_command.source_online,
                     g_robot_command.mode,
                     g_robot_command.gate,
-                    g_robot_command.failsafe,
+                    g_robot_command.released,
+                    g_robot_command.centered,
+                    (unsigned long)g_robot_command.fault_event_count,
+                    (unsigned)VehicleStatus_Get(),
                     g_robot_command.throttle_permille,
                     g_robot_command.steering_permille,
                     g_robot_command.speed_limit_erpm,

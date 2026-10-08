@@ -19,8 +19,8 @@ void RobotInit(void)
 {
   memset(&g_robot_command, 0, sizeof(g_robot_command));
   memset(&g_robot_chassis, 0, sizeof(g_robot_chassis));
-  g_robot_command.mode = ROBOT_MODE_LOCKED;
-  g_robot_command.gate = ROBOT_GATE_STARTUP_LOCK_REQUIRED;
+  g_robot_command.mode = ROBOT_MODE_AUTO_FC;
+  g_robot_command.gate = ROBOT_GATE_FC_INPUT_INVALID;
 
   BspCallback_Init();
   CommandApp_Init();

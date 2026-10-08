@@ -16,7 +16,7 @@ int main(void)
   uint32_t t;
   int16_t common=0;
   float left, right, left_scale, right_scale;
-  /* Suspended-wheel commissioning only; production CH7 ceiling is unchanged. */
+  /* FC branch preserves accepted drive and geometry parameters. */
   assert(CHASSIS_PARAMETERS_CONFIRMED == 1U && CHASSIS_OID_OUTPUT_ENABLE == 1U);
   assert(CHASSIS_OID_COMMISSION_MAX_ERPM == 0U && CHASSIS_OID_READBACK_ENABLE == 1U);
   assert(CHASSIS_STEER_LINKAGE_CONFIRMED == 1U);
@@ -41,8 +41,8 @@ int main(void)
   assert((positive_reverse[0] ? -1 : 1)*(sensor_invert[0] ? -1 : 1)>0);
   assert((positive_reverse[1] ? -1 : 1)*(sensor_invert[1] ? -1 : 1)>0);
   s_encoder[0].sample.healthy=s_encoder[1].sample.healthy=1;
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
-  g_robot_command.rc_online=1;g_robot_command.throttle_centered=1;
+  g_robot_command.mode=ROBOT_MODE_AUTO_FC;
+  g_robot_command.source_online=g_robot_command.released=g_robot_command.centered=1;
   DualSteer_Task(0,0,1,10);DualSteer_Task(0,0,1,210);
   for(t=220;t<=850;t+=10) common=DualSteer_Task(-1000,1000,1,t);
   assert(common==-700 && g_robot_chassis.steering_scheduled_permille==-700);
@@ -57,9 +57,13 @@ int main(void)
   /* Verify both settled full-lock directions at zero throttle, not only the
      high-speed gain case. Every legitimate new shaft target stays protected. */
   s_encoder[1].sample.healthy=1;
-  g_robot_command.mode=ROBOT_MODE_LOCKED;
+  g_robot_command.source_online=0;
   DualSteer_Task(0,0,0,880);
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
+  g_robot_command.source_online=1;
+  DualSteer_Task(0,0,1,890); DualSteer_Task(0,0,1,1090);
+  assert(g_robot_chassis.steer_fault && !DualSteer_MotionReady());
+  /* Only a control-board initialization clears the hard steering latch. */
+  DualSteer_Init();
   DualSteer_Task(0,0,1,890); DualSteer_Task(0,0,1,1090);
   for(t=1100;t<=2100;t+=10) DualSteer_Task(-1000,0,1,t);
   assert(!g_robot_chassis.steer_fault && DualSteer_MotionReady());

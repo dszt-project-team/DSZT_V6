@@ -73,8 +73,8 @@ int main(void)
   assert(s_encoder[1].sample.zero_valid == CHASSIS_STEER_RIGHT_ZERO_CONFIRMED);
   if (CHASSIS_STEER_LEFT_ZERO_CONFIRMED) assert(s_encoder[0].sample.raw_angle == CHASSIS_STEER_LEFT_ZERO_RAW);
   if (CHASSIS_STEER_RIGHT_ZERO_CONFIRMED) assert(s_encoder[1].sample.raw_angle == CHASSIS_STEER_RIGHT_ZERO_RAW);
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
-  g_robot_command.rc_online=1;g_robot_command.throttle_centered=1;
+  g_robot_command.mode=ROBOT_MODE_CALIBRATION;
+  g_robot_command.source_online=g_robot_command.released=g_robot_command.centered=1;
   /* Selected encoder deliberately remains unhealthy: the temporary open-loop
      hardware test must still run while publishing sh=0 for diagnosis. */
   s_encoder[selected].sample.healthy=0;
@@ -93,18 +93,18 @@ int main(void)
   assert(!g_robot_chassis.steer_healthy[selected]);
   g_robot_command.mode=ROBOT_MODE_AUTO_FC;
   DualSteer_Task(0,0,1,900);DualSteer_Task(-1000,0,1,1200);assert(!active->duty_permille);
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
-  g_robot_command.throttle_centered=0;
+  g_robot_command.mode=ROBOT_MODE_CALIBRATION;
+  g_robot_command.centered=0;
   DualSteer_Task(0,0,1,1210);DualSteer_Task(0,0,1,1500);assert(!s_released);
-  g_robot_command.throttle_centered=1;
+  g_robot_command.centered=1;
   DualSteer_Task(0,0,1,1510);DualSteer_Task(0,0,1,1710);assert(s_released);
   DualSteer_Task(-1000,0,1,1720);assert(active->duty_permille==450);
-  g_robot_command.failsafe=1;
+  g_robot_command.released=0;
   DualSteer_Task(-1000,0,1,1730);assert(!active->duty_permille && !s_released);
-  g_robot_command.failsafe=0;g_robot_command.rc_online=0;
+  g_robot_command.released=1;g_robot_command.source_online=0;
   DualSteer_Task(0,0,1,1740);assert(!s_released);
-  g_robot_command.rc_online=1;g_robot_command.mode=ROBOT_MODE_LOCKED;
+  g_robot_command.source_online=0;
   DualSteer_Task(-1000,0,0,1750);assert(s_motor[0].brake_on && s_motor[1].brake_on);
-  puts("PASS: 2000 geometry samples, side mapping, independent zero validity, selected-side encoder-health bypass, center gate, reversal waits, RC loss/recovery, AUTO exclusion, OID lock");
+  puts("PASS: 2000 geometry samples, side mapping, independent zero validity, selected-side encoder-health bypass, center gate, reversal waits, FC loss/recovery, normal-mode exclusion, OID lock");
   return 0;
 }

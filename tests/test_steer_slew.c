@@ -10,8 +10,8 @@ int main(void)
   int16_t drive;
   DualSteer_Init();
   s_encoder[0].sample.healthy=s_encoder[1].sample.healthy=1;
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
-  g_robot_command.rc_online=g_robot_command.throttle_centered=1;
+  g_robot_command.mode=ROBOT_MODE_AUTO_FC;
+  g_robot_command.source_online=g_robot_command.released=g_robot_command.centered=1;
   DualSteer_Task(0,0,1,10); DualSteer_Task(0,0,1,210);
   drive=DualSteer_Task(-1000,0,1,220);
   assert(drive==0); /* first 16 permille lies within differential deadband */
@@ -32,10 +32,10 @@ int main(void)
   before=s_ctrl[0].target_angle_deg;
   DualSteer_Task(1000,0,1,1000);
   assert(fabsf(s_ctrl[0].target_angle_deg-before-60.0f)<0.001f);
-  g_robot_command.mode=ROBOT_MODE_LOCKED;
+  g_robot_command.source_online=0;
   assert(DualSteer_Task(1000,0,0,1010)==0);
   assert(!s_slew_valid && s_motor[0].brake_on && s_motor[1].brake_on);
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
+  g_robot_command.source_online=1;
   DualSteer_Task(0,0,1,1020); DualSteer_Task(0,0,1,1220);
   assert(s_ctrl[0].target_angle_deg==0 && s_ctrl[1].target_angle_deg==0);
   DualSteer_Task(1000,0,1,1230);

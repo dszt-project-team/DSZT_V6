@@ -22,7 +22,6 @@
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bsp_callback.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,9 +62,7 @@ extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 extern TIM_HandleTypeDef htim8;
-extern DMA_HandleTypeDef hdma_usart1_rx;
 extern UART_HandleTypeDef huart7;
-extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart3;
 extern TIM_HandleTypeDef htim6;
 
@@ -214,41 +211,6 @@ void TIM4_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles USART1 global interrupt.
-  */
-void USART1_IRQHandler(void)
-{
-  /* USER CODE BEGIN USART1_IRQn 0 */
-  uint32_t rx_errors = huart1.Instance->SR &
-      (USART_SR_PE | USART_SR_FE | USART_SR_NE | USART_SR_ORE);
-
-  /* 清 IDLE 的读 SR/DR 操作也会清接收错误，必须先交给 HAL 记录并中止 DMA。
-   * 暂停 IDLE 分发直到错误回调重新启动接收，避免异步中止期间解析旧缓冲。 */
-  if (rx_errors != 0U)
-  {
-    __HAL_UART_DISABLE_IT(&huart1, UART_IT_IDLE);
-    HAL_UART_IRQHandler(&huart1);
-    /* HAL 可能延后错误回调；清除残余 IDLE，防止连续进中断。
-     * 若 HAL 已同步重启接收，此处不再关闭其重新启用的 IDLE 中断。 */
-    __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-    return;
-  }
-
-  /* 循环 DMA 使用自定义 IDLE 分发；正常路径先清标志，避免中断风暴。 */
-  if ((__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET) &&
-      (__HAL_UART_GET_IT_SOURCE(&huart1, UART_IT_IDLE) != RESET))
-  {
-    __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-    BspCallback_DispatchUartIdle(&huart1);
-  }
-  /* USER CODE END USART1_IRQn 0 */
-  HAL_UART_IRQHandler(&huart1);
-  /* USER CODE BEGIN USART1_IRQn 1 */
-
-  /* USER CODE END USART1_IRQn 1 */
-}
-
-/**
   * @brief This function handles USART3 global interrupt.
   */
 void USART3_IRQHandler(void)
@@ -302,20 +264,6 @@ void TIM6_DAC_IRQHandler(void)
   /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
 
   /* USER CODE END TIM6_DAC_IRQn 1 */
-}
-
-/**
-  * @brief This function handles DMA2 stream2 global interrupt.
-  */
-void DMA2_Stream2_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA2_Stream2_IRQn 0 */
-
-  /* USER CODE END DMA2_Stream2_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_usart1_rx);
-  /* USER CODE BEGIN DMA2_Stream2_IRQn 1 */
-
-  /* USER CODE END DMA2_Stream2_IRQn 1 */
 }
 
 /**

@@ -2,7 +2,8 @@
 #define DUAL_STEER_H
 #include <stdint.h>
 void DualSteer_Init(void);
-/* Called at 10 ms. Negative is V6 left; returns the separately slewed OID command. */
+/* 正常位置环10ms；输入禁止时可从1ms服务层立即调用停止。
+ * 负值为车体左转；返回独立限速后的OID差速转向指令。 */
 int16_t DualSteer_Task(int16_t command, int16_t drive_command_permille,
                        uint8_t source_ready, uint32_t now_ms);
 int16_t DualSteer_ScheduleCommand(int16_t command, int16_t drive_command_permille);

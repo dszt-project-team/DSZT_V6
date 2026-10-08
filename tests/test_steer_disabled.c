@@ -11,8 +11,8 @@ int main(void)
   uint32_t t;
   DualSteer_Init();
   s_encoder[0].sample.healthy=s_encoder[1].sample.healthy=1;
-  g_robot_command.mode=ROBOT_MODE_MANUAL;
-  g_robot_command.rc_online=g_robot_command.throttle_centered=1;
+  g_robot_command.mode=ROBOT_MODE_AUTO_FC;
+  g_robot_command.source_online=g_robot_command.released=g_robot_command.centered=1;
   DualSteer_Task(0,0,1,10);DualSteer_Task(0,0,1,210);
   for(t=220;t<1000;t+=10) assert(DualSteer_Task(-1000,0,1,t)==0);
   assert(s_ctrl[0].state==STEER_ANGLE_CTRL_DISABLED && s_ctrl[1].state==STEER_ANGLE_CTRL_DISABLED);

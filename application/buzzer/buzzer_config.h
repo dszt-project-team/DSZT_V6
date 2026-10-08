@@ -1,34 +1,27 @@
-/* 蜂鸣器仅反馈软件状态，不参与解锁/停车控制；修改宏后需重新编译烧录。 */
+/* 蜂鸣器只反馈软件状态，不参与授权/停车；修改宏后需重新编译下载。 */
 #ifndef BUZZER_CONFIG_H
 /* 头文件重复包含保护，不是功能开关。 */
 #define BUZZER_CONFIG_H
-/* 蜂鸣器总开关：1启用，0关闭；下列所有提示均受此开关约束。 */
+/* 总开关：1启用蜂鸣器，0关闭；下列开关均受本项约束。 */
 #define BUZZER_APP_ENABLE                 1U
-/* 开机提示：1播放一次260 ms上升三音，仅表示软件启动，不表示车辆解锁。 */
+/* 开机提示：1播放一次260 ms上升三音；只表示软件启动，不表示车辆放行。 */
 #define BUZZER_APP_BOOT_CUE_ENABLE        1U
-/* 接收机首次健康上线提示：1播放短双音；重连不反复播报，也不表示已放行。 */
-#define BUZZER_APP_RC_CUE_ENABLE          1U
-/* 状态事件提示：1启用真实手动/自动放行及锁车音，0关闭；不按摇杆动作或仅切档发声。 */
-#define BUZZER_APP_MODE_CUE_ENABLE        1U
-/* 重复报警总开关：1启用以下持续故障/等待授权提示，0仅保留开机及事件音。 */
+/* 就绪提示：1在自动链真正放行且稳定后播放短三音；标定状态不播放行走就绪音。 */
+#define BUZZER_APP_READY_CUE_ENABLE       1U
+/* 重复提示总开关：1启用持续故障/等待提示，0仅保留启动与就绪音。 */
 #define BUZZER_APP_ALARM_ENABLE           1U
-/* 遥控失联报警：1启用；曾健康上线且失联持续达到稳定时间才提示，首次未连遥控不反复鸣叫。 */
-#define BUZZER_APP_RC_FAULT_ENABLE        1U
-/* 转向故障报警：1启用；使用统一车辆状态，不改变编码器或转向保护。 */
+/* 转向故障提示：1启用；不改变编码器健康门或转向故障锁存。 */
 #define BUZZER_APP_STEER_FAULT_ENABLE     1U
-/* OID故障报警：1启用；只做简短分组提示，左右及具体原因请看UART7。 */
+/* OID故障提示：1启用；左右及具体原因由UART7读取。 */
 #define BUZZER_APP_OID_FAULT_ENABLE       1U
-/* 飞控故障报警：1启用；自动模式MAIN健康状态异常持续达到稳定时间才提示。 */
+/* 飞控输入故障提示：1启用；两路曾健康上线后才报警，首次未接飞控不循环鸣叫。 */
 #define BUZZER_APP_FC_FAULT_ENABLE        1U
-/* 等待启动授权提示：1启用；遥控曾上线后需重新锁车时，等待5 s再低频提示。 */
-#define BUZZER_APP_STARTUP_WAIT_ENABLE    1U
-/* 正常事件稳定时间，当前100 ms；仅抑制提示音跳变，不推迟控制响应。 */
+/* 等待回中/重臂提示：1启用，持续等待5 s后低频短双音；不表示飞控已解锁。 */
+#define BUZZER_APP_RELEASE_WAIT_ENABLE    1U
+/* 就绪事件稳定时间，当前100 ms；仅抑制声音毛刺，不延迟运动控制。 */
 #define BUZZER_APP_EVENT_STABLE_MS        100U
-/* 故障提示稳定时间，当前300 ms；故障控制门立即生效，声音延后排除极短毛刺。 */
+/* 故障声音稳定时间，当前300 ms；控制保护仍按原时序立即处理。 */
 #define BUZZER_APP_FAULT_STABLE_MS        300U
-/* 等待重新锁车的首次提醒延时，当前5000 ms；重复间隔由BSP音型固定为5 s。 */
-#define BUZZER_APP_STARTUP_WAIT_MS        5000U
-/* 首次上线音的有效等待期限，当前1000 ms；超时或故障时丢弃，避免事后补播旧事件。 */
-#define BUZZER_APP_CONNECT_EVENT_TTL_MS   1000U
-
+/* 等待回中提示首次延迟，当前5000 ms；重复音型周期为5 s。 */
+#define BUZZER_APP_RELEASE_WAIT_MS        5000U
 #endif

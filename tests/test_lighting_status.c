@@ -65,9 +65,10 @@ static void reset(void)
   memset(&g_robot_chassis, 0, sizeof(g_robot_chassis));
   memset(refreshes, 0, sizeof(refreshes)); memset(tasks, 0, sizeof(tasks));
   fail_left_init = fail_right_init = 0U;
-  g_robot_command.rc_online = 1U;
-  g_robot_command.mode = ROBOT_MODE_MANUAL;
+  g_robot_command.source_online = 1U;
+  g_robot_command.mode = ROBOT_MODE_AUTO_FC;
   g_robot_command.gate = ROBOT_GATE_READY;
+  g_robot_command.released = 1U;
   g_robot_chassis.parameters_confirmed = 1U;
   g_robot_chassis.motion_enabled = 1U;
   g_robot_chassis.steer_released = 1U;
@@ -83,8 +84,8 @@ static void test_motion(void)
 {
   reset();
   LightingApp_Task(0U);
-  check(all_color(&s_left_strip, 0U, 12U, 8U) && all_color(&s_right_strip, 0U, 12U, 8U),
-        "manual ready at zero target is stable low-brightness teal");
+  check(all_color(&s_left_strip, 0U, 3U, 16U) && all_color(&s_right_strip, 0U, 3U, 16U),
+        "FC ready at zero target is stable low-brightness blue");
   check(s_left_strip.reversed == 0U && s_right_strip.reversed == 0U &&
         s_left_strip.channel == TIM_CHANNEL_1 && s_right_strip.channel == TIM_CHANNEL_4 &&
         s_left_strip.zero_compare == 70U && s_right_strip.one_compare == 140U,
@@ -96,7 +97,7 @@ static void test_motion(void)
   LightingApp_Task(150U);
   check(find_white_lead(&s_left_strip) == 17 && find_white_lead(&s_right_strip) == 17,
         "forward flow progresses rear to head with decreasing indices");
-  check(color_is(&s_left_strip, 0U, 0U, 12U, 8U) && color_is(&s_left_strip, 20U, 0U, 12U, 8U),
+  check(color_is(&s_left_strip, 0U, 0U, 3U, 16U) && color_is(&s_left_strip, 20U, 0U, 3U, 16U),
         "movement never covers end status pixels");
   g_robot_chassis.left_target_erpm = g_robot_chassis.right_target_erpm = -500;
   LightingApp_Task(200U);
@@ -107,13 +108,13 @@ static void test_motion(void)
         "reverse white flow progresses head to rear with increasing indices");
   g_robot_chassis.left_target_erpm = 50; g_robot_chassis.right_target_erpm = 50;
   LightingApp_Task(350U);
-  check(all_color(&s_left_strip, 0U, 12U, 8U), "50 ERPM command deadband suppresses movement flow");
+  check(all_color(&s_left_strip, 0U, 3U, 16U), "50 ERPM command deadband suppresses movement flow");
   g_robot_chassis.left_target_erpm = 100; g_robot_chassis.right_target_erpm = 100;
   LightingApp_Task(400U);
-  check(s_motion_direction == 1, "CH7 minimum 100 ERPM still displays movement direction");
+  check(s_motion_direction == 1, "Small 100 ERPM target still displays movement direction");
   g_robot_chassis.left_target_erpm = 4900; g_robot_chassis.right_target_erpm = -4900;
   LightingApp_Task(450U);
-  check(all_color(&s_left_strip, 0U, 12U, 8U), "opposed targets with zero mean do not imply translation");
+  check(all_color(&s_left_strip, 0U, 3U, 16U), "opposed targets with zero mean do not imply translation");
   g_robot_chassis.left_target_erpm = INT32_MAX; g_robot_chassis.right_target_erpm = INT32_MAX;
   LightingApp_Task(500U);
   check(s_motion_direction == 1, "diagnostic extreme target sum does not overflow signed 32-bit");
@@ -132,17 +133,17 @@ static void test_turn(void)
   reset();
   g_robot_chassis.steering_scheduled_permille = -130;
   LightingApp_Task(0U);
-  check(color_is(&s_left_strip, 10U, 6U, 2U, 0U) && all_color(&s_right_strip, 0U, 12U, 8U),
+  check(color_is(&s_left_strip, 10U, 6U, 2U, 0U) && all_color(&s_right_strip, 0U, 3U, 16U),
         "negative steering starts dim amber breath only on left interior");
-  check(color_is(&s_left_strip, 0U, 0U, 12U, 8U) && color_is(&s_left_strip, 1U, 0U, 12U, 8U) &&
-        color_is(&s_left_strip, 19U, 0U, 12U, 8U) && color_is(&s_left_strip, 20U, 0U, 12U, 8U),
+  check(color_is(&s_left_strip, 0U, 0U, 3U, 16U) && color_is(&s_left_strip, 1U, 0U, 3U, 16U) &&
+        color_is(&s_left_strip, 19U, 0U, 3U, 16U) && color_is(&s_left_strip, 20U, 0U, 3U, 16U),
         "turn breath preserves all four reserved status pixels");
   level[0] = s_left_strip.pixels[10].r;
   for (i = 1U; i < 9U; i++)
   {
     LightingApp_Task((uint32_t)i * 150U);
     level[i] = s_left_strip.pixels[10].r;
-    if (!all_color(&s_right_strip, 0U, 12U, 8U)) amber = 0;
+    if (!all_color(&s_right_strip, 0U, 3U, 16U)) amber = 0;
     if (i == 4U)
     {
       uint16_t pixel;
@@ -175,11 +176,11 @@ static void test_turn(void)
   g_robot_chassis.steering_scheduled_permille =
       (LIGHTING_APP_TURN_EXIT_PERMILLE > 0) ? (1 - LIGHTING_APP_TURN_EXIT_PERMILLE) : 0;
   LightingApp_Task(1300U);
-  check(s_turn_side == 0 && all_color(&s_left_strip, 0U, 12U, 8U),
+  check(s_turn_side == 0 && all_color(&s_left_strip, 0U, 3U, 16U),
         "turn signal exits to base below threshold or at exact zero with zero-exit config");
   g_robot_chassis.steering_scheduled_permille = 130;
   LightingApp_Task(1350U);
-  check(color_is(&s_right_strip, 10U, 6U, 2U, 0U) && all_color(&s_left_strip, 0U, 12U, 8U),
+  check(color_is(&s_right_strip, 10U, 6U, 2U, 0U) && all_color(&s_left_strip, 0U, 3U, 16U),
         "positive steering starts right amber breath with left base restored");
   g_robot_command.mode = ROBOT_MODE_AUTO_FC;
   g_robot_chassis.steering_scheduled_permille = -130;
@@ -204,7 +205,7 @@ static void test_turn_motion_layers(void)
         color_is(&s_left_strip, 15U, 10U, 10U, 10U),
         "forward white gradient is drawn above amber turn layer without color tint");
   check(color_is(&s_left_strip, 10U, 17U, 6U, 0U) &&
-        color_is(&s_right_strip, 10U, 0U, 12U, 8U) && find_white_lead(&s_right_strip) == 13,
+        color_is(&s_right_strip, 10U, 0U, 3U, 16U) && find_white_lead(&s_right_strip) == 13,
         "turning while driving keeps amber elsewhere and white movement on opposite side");
   g_robot_chassis.left_target_erpm = g_robot_chassis.right_target_erpm = -500;
   LightingApp_Task(350U);
@@ -216,11 +217,11 @@ static void test_turn_motion_layers(void)
   g_robot_chassis.left_target_erpm = g_robot_chassis.right_target_erpm = 0;
   LightingApp_Task(550U);
   check(find_white_lead(&s_left_strip) == -1 && s_left_strip.pixels[10].r > 6U &&
-        all_color(&s_right_strip, 0U, 12U, 8U),
+        all_color(&s_right_strip, 0U, 3U, 16U),
         "stopping removes white segment without interrupting remaining turn breath");
   g_robot_chassis.steering_scheduled_permille = 0;
   LightingApp_Task(600U);
-  check(all_color(&s_left_strip, 0U, 12U, 8U) && all_color(&s_right_strip, 0U, 12U, 8U),
+  check(all_color(&s_left_strip, 0U, 3U, 16U) && all_color(&s_right_strip, 0U, 3U, 16U),
         "centering after stopping removes all motion overlays");
 }
 
@@ -238,14 +239,14 @@ static void test_turn_short_and_wrap(void)
     g_robot_chassis.steering_scheduled_permille = -500;
     LightingApp_Task(0U);
     LightingApp_Task(600U);
-    if (!all_color(&s_right_strip, 0U, 12U, 8U)) ends_ok = 0;
+    if (!all_color(&s_right_strip, 0U, 3U, 16U)) ends_ok = 0;
     for (i = 0U; i < count; i++)
     {
       WS2812Strip_Color_t a = s_left_strip.pixels[i];
       WS2812Strip_Color_t b = s_left_strip.pixels[count - 1U - i];
       if ((count <= 4U) || (i < 2U) || (i >= count - 2U))
       {
-        if (!color_is(&s_left_strip, i, 0U, 12U, 8U)) ends_ok = 0;
+        if (!color_is(&s_left_strip, i, 0U, 3U, 16U)) ends_ok = 0;
       }
       if ((a.r != b.r) || (a.g != b.g) || (a.b != b.b)) symmetric = 0;
       if ((a.r > LIGHTING_APP_MAX_BRIGHTNESS) || (a.g > LIGHTING_APP_MAX_BRIGHTNESS) ||
@@ -263,7 +264,7 @@ static void test_turn_short_and_wrap(void)
   LightingApp_Task(300U);
   check(color_is(&s_right_strip, 10U, 28U, 10U, 0U), "turn breath reaches peak after tick wrap");
   LightingApp_Task(900U);
-  check(color_is(&s_right_strip, 10U, 6U, 2U, 0U) && all_color(&s_left_strip, 0U, 12U, 8U),
+  check(color_is(&s_right_strip, 10U, 6U, 2U, 0U) && all_color(&s_left_strip, 0U, 3U, 16U),
         "turn breath returns to minimum at full period after tick wrap");
 }
 
@@ -272,48 +273,46 @@ static void test_status_priority(void)
   reset();
   g_robot_chassis.left_target_erpm = g_robot_chassis.right_target_erpm = 1000;
   g_robot_chassis.steering_scheduled_permille = -500;
-  g_robot_command.rc_online = 0U;
+  g_robot_command.source_online = 0U;
   g_robot_chassis.steer_fault = 1U;
   g_robot_chassis.left_fault = 1U;
   LightingApp_Task(0U);
-  check(all_color(&s_left_strip, 32U, 0U, 0U) && s_motion_direction == 0 && s_turn_side == 0,
-        "RC fault overrides steering OID faults and all motion overlays");
-  LightingApp_Task(100U);
-  check(all_color(&s_left_strip, 0U, 0U, 0U), "RC first double pulse ends at 100 ms");
-  LightingApp_Task(200U);
-  check(all_color(&s_left_strip, 32U, 0U, 0U), "RC double pulse has second red flash");
-  g_robot_command.rc_online = 1U;
-  LightingApp_Task(300U);
+  check(all_color(&s_left_strip, 16U, 0U, 32U) && s_motion_direction == 0 && s_turn_side == 0,
+        "FC fault overrides steering OID faults and all motion overlays");
+  LightingApp_Task(500U);
+  check(all_color(&s_left_strip, 0U, 0U, 0U), "FC purple slow flash has 500 ms off phase");
+  LightingApp_Task(1000U);
+  check(all_color(&s_left_strip, 16U, 0U, 32U), "FC purple slow flash repeats after one second");
+  g_robot_command.source_online = 1U;
+  LightingApp_Task(1100U);
   check(all_color(&s_left_strip, 32U, 0U, 20U), "steering fault is magenta double pulse above OID");
+  LightingApp_Task(1200U);
+  check(all_color(&s_left_strip, 0U, 0U, 0U), "steering double pulse first gap");
+  LightingApp_Task(1300U);
+  check(all_color(&s_left_strip, 32U, 0U, 20U), "steering double pulse second flash");
   g_robot_chassis.steer_fault = 0U;
-  LightingApp_Task(350U);
+  LightingApp_Task(1400U);
   check(all_color(&s_left_strip, 32U, 0U, 0U), "OID fault is red slow flash");
-  LightingApp_Task(850U);
+  LightingApp_Task(1900U);
   check(all_color(&s_left_strip, 0U, 0U, 0U), "OID slow flash has 500 ms off phase");
   g_robot_chassis.left_fault = 0U;
-  g_robot_command.mode = ROBOT_MODE_AUTO_FC;
-  g_robot_chassis.fc_drive_online = 0U;
-  LightingApp_Task(900U);
-  check(all_color(&s_left_strip, 16U, 0U, 32U), "automatic FC fault is purple slow flash");
-  g_robot_chassis.fc_drive_online = 1U;
   g_robot_chassis.parameters_confirmed = 0U;
-  LightingApp_Task(950U);
+  LightingApp_Task(2000U);
   check(all_color(&s_left_strip, 12U, 0U, 24U), "unconfirmed parameters remain steady purple");
   g_robot_chassis.parameters_confirmed = 1U;
-  g_robot_command.mode = ROBOT_MODE_LOCKED;
-  LightingApp_Task(1000U);
-  check(all_color(&s_left_strip, 10U, 4U, 0U), "healthy intentional lock is dim amber not red");
-  g_robot_command.gate = ROBOT_GATE_STARTUP_LOCK_REQUIRED;
-  LightingApp_Task(1050U);
-  check(all_color(&s_left_strip, 20U, 8U, 0U), "startup authorization wait is amber double pulse");
-  g_robot_command.gate = ROBOT_GATE_MODE_CONFIRMING;
-  LightingApp_Task(1100U);
-  check(all_color(&s_left_strip, 4U, 1U, 0U), "mode-confirmation wait starts amber breathing");
-  g_robot_command.mode = ROBOT_MODE_MANUAL;
+  g_robot_command.gate = ROBOT_GATE_FC_CENTERING;
+  LightingApp_Task(2050U);
+  check(all_color(&s_left_strip, 4U, 1U, 0U), "FC centering wait starts amber breathing");
+  g_robot_command.mode = ROBOT_MODE_CALIBRATION;
+  g_robot_chassis.steer_calibration_side = 1U;
+  g_robot_command.gate = ROBOT_GATE_CAL_DRIVE_NOT_CENTERED;
+  LightingApp_Task(2100U);
+  check(s_status == VEHICLE_STATUS_RELEASE_WAIT && s_motion_direction == 0,
+        "calibration MAIN1 off-center remains waiting without movement flow");
   g_robot_command.gate = ROBOT_GATE_READY;
   g_robot_chassis.steer_calibration_side = 1U;
-  LightingApp_Task(1150U);
-  check(all_color(&s_left_strip, 6U, 0U, 12U), "open-loop calibration is dim purple without movement flow");
+  LightingApp_Task(2150U);
+  check(all_color(&s_left_strip, 6U, 0U, 12U), "released calibration is dim purple without movement flow");
 }
 
 static void test_lifecycle(void)

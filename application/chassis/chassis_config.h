@@ -1,29 +1,29 @@
-/* DSZT_V6 chassis 配置：修改宏后需重新编译下载；中文注释说明当前作用及调整约束。
+/* DSZT_V6_FC chassis 配置：修改宏后需重新编译下载；中文注释说明当前作用及调整约束。
  * 0/1开关按各项适用范围使用，不代表绕过其他安全门。
  */
 #ifndef CHASSIS_CONFIG_H
 /* 头文件重复包含保护，不是功能开关，请勿修改。 */
 #define CHASSIS_CONFIG_H
 
-/* 整车参数确认：当前1允许申请行走，0锁住行走；不绕过遥控、转向、OID健康及回中检查。 */
+/* 整车参数确认：当前1允许申请行走，0锁住行走；不绕过飞控输入、转向、OID健康及回中检查。 */
 #define CHASSIS_PARAMETERS_CONFIRMED       1U
 /* OID行走输出开关：当前1允许非零目标，0只停车；不关闭心跳/状态维护，也不单独关闭转向。 */
 #define CHASSIS_OID_OUTPUT_ENABLE         1U
 
-/* 额外行走限速，单位ERPM：当前0不附加限制；非零时同时钳制手动与飞控上限，只能收紧原上限。 */
+/* 额外行走限速，单位ERPM：当前0不附加限制；非零时钳制飞控速度上限，只能收紧原上限。 */
 #define CHASSIS_OID_COMMISSION_MAX_ERPM     0U
-/* OID模式/目标寄存器额外回读：当前1开启，0关闭；只在锁车低速且有总线余量时发起，不影响基础状态查询。 */
+/* OID模式/目标寄存器额外回读：当前1开启，0关闭；只在双轴中位、双目标零且反馈新鲜低速时发起，不影响基础状态查询。 */
 #define CHASSIS_OID_READBACK_ENABLE         1U
 
 /* 快速换向反馈等待：当前0关闭，目标直接交给OID内部斜坡；1先提交双零速并等待新鲜低速反馈再放行。 */
 #define CHASSIS_OID_REVERSE_GUARD_ENABLE     0U
-/* 低速判定窗口，单位ERPM，当前±50；用于可选换向等待和锁车额外回读许可，不产生永久停车锁存。 */
+/* 低速判定窗口，单位ERPM，当前±50；用于可选换向等待和静止额外回读许可，不产生永久停车锁存。 */
 #define CHASSIS_OID_REVERSE_ZERO_ERPM       50L
 /* 可选换向等待所需连续双侧新样本组数，当前2组；加大更保守但延迟增加，当前等待开关为0时不参与换向。 */
 #define CHASSIS_OID_REVERSE_ZERO_PAIRS       2U
-/* 低速样本最大年龄，当前200 ms；用于可选换向等待及锁车回读许可。减小更严格，不是OID基础在线500 ms阈值。 */
+/* 低速样本最大年龄，当前200 ms；用于可选换向等待及静止回读许可。减小更严格，不是OID基础在线500 ms阈值。 */
 #define CHASSIS_OID_REVERSE_STATUS_MAX_AGE_MS 200U
-/* 飞控自动控制授权：当前1允许MAIN1/2健康回中后释放，0禁止自动释放；不取消PWM采集或SBUS模式选择。 */
+/* 飞控自动控制授权：当前1允许MAIN1/2健康回中后释放，0禁止自动释放；不取消PWM采集和诊断；本分支无遥控模式选择。 */
 #define CHASSIS_FC_CONTROL_ENABLE         1U
 
 /* 左前轮OID的Modbus地址，当前1；范围1～247，须与驱动器一致且与右侧不同。 */
@@ -48,7 +48,7 @@
 /* 零油门满舵内轮目标28°，模型外轮20.320382°、轴角76.125212°/66.915019°；沿用连杆比例，须实测新结构并联查80°/82°保护。 */
 #define CHASSIS_MAX_INNER_WHEEL_DEG       28.000f
 
-/* 转向模式：当前0正常双闭环；1仅左开环，2仅右开环。开环仅手动可用，另一轮刹停且禁止OID行走，无闭环角度保护。 */
+/* 转向模式：当前0正常双闭环；1仅左开环，2仅右开环。开环由MAIN2控制，MAIN1必须保持中位；另一轮刹停且禁止OID行走，无闭环角度保护。 */
 #define CHASSIS_STEER_CALIBRATION_SIDE       0U
 
 /* 单轮开环编码器健康门：当前0旁路，1要求选中侧健康；不影响正常双闭环强制检查双侧编码器。 */
@@ -86,7 +86,7 @@
 #define CHASSIS_STEER_CAL_MAX_DUTY         450
 /* 单轮开环换向前停止和切FR后等待，各用当前300 ms；加大更慢，不影响闭环模块的独立50 ms换向等待。 */
 #define CHASSIS_STEER_CAL_DIRECTION_MS     300U
-/* 转向释放所需连续回中时间，当前200 ms；手动还要求油门中位，时间越大启动等待越长。 */
+/* 转向释放所需连续回中时间，当前200 ms；在飞控输入200ms授权后额外要求双输入中位；时间越大启动等待越长。 */
 #define CHASSIS_STEER_RELEASE_CENTER_MS    200U
 
 /* 内轮连杆参考对应的电机输出轴角，当前89.719°；与INNER_REFERENCE_DEG相除得轴角/轮角比例，不是当前满舵目标。 */
@@ -133,11 +133,11 @@
 #define CHASSIS_ACKERMANN_SPEED_GAIN_ENABLE           1U
 /* 满参考速度指令下最小转向增益，当前0.70，范围(0,1]；越小高速转角越小，设1相当于不收角。 */
 #define CHASSIS_ACKERMANN_SPEED_GAIN_MIN              0.70f
-/* 增益降到最小值所需归一化行走量，当前1000‰，须>0；越小越早收角，输入已计入CH7及速度参考值。 */
+/* 增益降到最小值所需归一化行走量，当前1000‰，须>0；越小越早收角，输入已计入飞控速度上限及速度参考值。 */
 #define CHASSIS_ACKERMANN_SPEED_GAIN_FULL_COMMAND  1000.0f
 /* 速度指令归一化参考，当前4900 ERPM，须≥1；不是额外速度上限，改小会更早收小转角。 */
 #define CHASSIS_ACKERMANN_SPEED_REFERENCE_ERPM      4900U
-/* 增益调度前后转向量死区，当前0.02即2%，范围[0,1)；加大减少中位差速/转向动作，不是CH1等效脉宽死区。 */
+/* 增益调度前后转向量死区，当前0.02即2%，范围[0,1)；加大减少中位差速/转向动作，不是MAIN2脉宽死区。 */
 #define CHASSIS_ACKERMANN_COMMAND_DEADBAND            0.02f
 
 #if CHASSIS_STEER_CALIBRATION_SIDE > 2U
@@ -182,7 +182,7 @@
 
 /* MAIN1反向满幅端点，当前1260 μs；低于等于此值钳位−1000‰，须低于中位减死区。 */
 #define CHASSIS_FC_DRIVE_REVERSE_FULL_US   1260U
-/* MAIN1油门中位，当前1502 μs；按飞控实际中位标定，不与遥控CH3中位混用。 */
+/* MAIN1油门中位，当前1502 μs；按飞控实际中位标定，与MAIN2转向中位独立。 */
 #define CHASSIS_FC_DRIVE_NEUTRAL_US        1502U
 /* MAIN1正向满幅端点，当前1770 μs；高于等于此值钳位+1000‰，须高于中位加死区。 */
 #define CHASSIS_FC_DRIVE_FORWARD_FULL_US   1770U
@@ -196,9 +196,9 @@
 #define CHASSIS_FC_STEER_RIGHT_FULL_US     2000U
 /* MAIN2中位死区半宽，当前15 μs；加大减少中位转向动作，但会损失小角度输入范围。 */
 #define CHASSIS_FC_STEER_DEADBAND_US         15U
-/* 自动模式两路健康且双轴连续回中释放时间，当前200 ms；故障或退出自动模式后重新计时。 */
+/* 两路健康且原始/滤波双轴连续回中释放时间，当前200 ms；上电、输入异常或开环MAIN1离中后重新计时。 */
 #define CHASSIS_FC_RELEASE_CENTER_MS         200U
-/* 自动模式基础速度上限，当前4900 ERPM，不使用CH7；仍可被额外限速收紧，不应超过OID已配置能力。 */
+/* 飞控基础速度上限，当前4900 ERPM；无遥控限速旋钮；仍可被额外限速收紧，不应超过OID已配置能力。 */
 #define CHASSIS_FC_SPEED_LIMIT_ERPM         4900U
 
 /* 底盘目标、位置环及上层安全控制更新间隔，当前10 ms；OID收发每轮独立服务。改动需联查PWM斜坡、滤波和任务负载。 */
